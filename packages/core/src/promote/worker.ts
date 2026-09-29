@@ -114,13 +114,15 @@ export class PromotionWorker {
 
   /** Advances every running promotion once. Overlapping calls share one pass. */
   tick(): Promise<void> {
-    this.ticking ??= (async () => {
-      try {
-        for (const p of this.store.list().filter((x) => x.status === 'running')) await this.advanceAndSave(p);
-      } finally {
-        this.ticking = undefined;
-      }
-    })();
+    if (this.ticking) return this.ticking;
+    const pass = async () => {
+      for (const p of this.store.list().filter((x) => x.status === 'running')) await this.advanceAndSave(p);
+    };
+    // Clear in .finally (always async): clearing inside `pass` would run before this assignment
+    // when there is nothing to do, leaving a settled promise that turns every later tick into a no-op.
+    this.ticking = pass().finally(() => {
+      this.ticking = undefined;
+    });
     return this.ticking;
   }
 

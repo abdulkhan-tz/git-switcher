@@ -157,6 +157,15 @@ describe('promotion run', () => {
     await expect(worker.startPromotion('api')).rejects.toThrow(/already has a running promotion/);
   });
 
+  it('an idle tick (nothing running) does not wedge later ticks', async () => {
+    const { worker, github, store } = await setup(base);
+    await worker.tick(); // nothing to do — used to leave a settled promise behind
+    const p = await worker.startPromotion('api');
+    github.merge(1);
+    await worker.tick();
+    expect(statuses(store.get(p.id)!)).toEqual(['merged', 'open', 'pending']);
+  });
+
   it('a new worker (after a restart) picks up where the last one left off', async () => {
     const { worker, github, make, store } = await setup(base);
     const p = await worker.startPromotion('api');
