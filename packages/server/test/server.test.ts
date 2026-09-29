@@ -133,3 +133,41 @@ describe('server', () => {
     expect((events.at(-1) as any).results[0].outcome).toBe('cancelled');
   });
 });
+
+describe('promotions API', () => {
+  it('sets a pipeline, starts a promotion, and follows merges via tick; stop/resume', async () => {
+    const { PromotionStore, PromotionWorker } = await import('@git-helper/core');
+    const { FakeGitHub } = await import('../../core/test/fakeGithub.js');
+    const dir = mkdtempSync(join(tmpdir(), 'git-helper-srvp-'));
+    const registry = new Registry(join(dir, 'repos.json'));
+    const github = new FakeGitHub({ main: ['a'], qa: ['a'], develop: ['a', 'b'] });
+    const worker = new PromotionWorker({ registry, github, store: new PromotionStore(join(dir, 'p.json')), lockFile: join(dir, 'lock') });
+    running = await startServer({ registry, history: new History(join(dir, 'h.jsonl')), token: 't', worker, pollPromotions: false });
+    const call = async (method: string, path: string, body?: unknown) => {
+      const res = await fetch(`http://127.0.0.1:${running!.port}${path}`, { method, headers: { 'x-git-helper-token': 't', 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+      return { status: res.status, body: (await res.json()) as any };
+    };
+    const fx = makeFixture();
+    const repo = (await call('POST', '/api/repos', { path: fx.work, name: 'api' })).body;
+    expect((await call('PUT', `/api/repos/${repo.id}/pipeline`, { stages: ['develop'] })).status).toBe(400);
+    expect((await call('PUT', `/api/repos/${repo.id}/pipeline`, { stages: ['develop', 'qa', 'main'], autoMerge: ['develop→qa'] })).body.pipeline.autoMerge).toEqual(['develop→qa']);
+
+    const started = await call('POST', '/api/promotions', { repoIds: [repo.id] });
+    expect(started.status).toBe(201);
+    const id = started.body.started[0].id;
+    expect(started.body.started[0].steps[0].pr.url).toContain('/pull/1');
+    expect(github.pr(1).autoMerge).toBe(true);
+    expect((await call('POST', '/api/promotions', { repoIds: [repo.id] })).body.errors[0].error).toContain('already has a running promotion');
+
+    github.merge(1);
+    await call('POST', '/api/promotions/tick');
+    let list = (await call('GET', '/api/promotions')).body;
+    expect(list.promotions[0].steps.map((s: any) => s.status)).toEqual(['merged', 'open']);
+    expect(list.worker.polling).toBe(false);
+
+    expect((await call('POST', `/api/promotions/${id}/stop`)).body.status).toBe('stopped');
+    github.merge(2);
+    expect((await call('POST', `/api/promotions/${id}/resume`)).body.status).toBe('done');
+    expect((await call('POST', '/api/promotions/nope/stop')).status).toBe(400);
+  });
+});

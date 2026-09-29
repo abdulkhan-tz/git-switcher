@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { extname, join, normalize, resolve } from 'node:path';
 import type { AddressInfo } from 'node:net';
-import { History, Registry, RegistryError, inspect, listWorktrees, repoExists, worktreeDetails, type RepoEntry } from '@git-helper/core';
+import { History, PromotionError, PromotionWorker, Registry, RegistryError, inspect, listWorktrees, repoExists, worktreeDetails, type RepoEntry } from '@git-helper/core';
 import { Batch } from './runs.js';
 
 export interface ServerOptions {
@@ -14,6 +14,10 @@ export interface ServerOptions {
   port?: number;
   /** Built web UI to serve at `/`. */
   webDir?: string;
+  /** Promotion worker; one is created (and started) by default. */
+  worker?: PromotionWorker;
+  /** Start polling promotions. Default true. */
+  pollPromotions?: boolean;
 }
 
 export interface RunningServer {
@@ -22,6 +26,7 @@ export interface RunningServer {
   token: string;
   /** Dashboard URL including the token. */
   url: string;
+  worker: PromotionWorker;
   close(): Promise<void>;
 }
 
@@ -57,6 +62,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
   const registry = opts.registry ?? new Registry();
   const history = opts.history ?? new History();
   const token = opts.token ?? randomBytes(16).toString('hex');
+  const worker = opts.worker ?? new PromotionWorker({ registry });
   const batches = new Map<string, Batch>();
   const busy = new Set<string>();
 
@@ -107,6 +113,13 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
         return json(res, 200, await repoView(registry.update(id, { name: optStr(b.name), base: optStr(b.base), remote: optStr(b.remote) })));
       }
       if (id && !sub && method === 'DELETE') return json(res, 200, registry.remove(repoOr404(id).id));
+      if (id && sub === 'pipeline' && method === 'PUT') {
+        const b = await readBody(req);
+        if (!Array.isArray(b.stages)) throw new HttpError(400, 'stages must be an array');
+        const autoMerge = Array.isArray(b.autoMerge) ? b.autoMerge.map(String) : undefined;
+        return json(res, 200, await repoView(registry.setPipeline(repoOr404(id).id, { stages: b.stages.map(String), autoMerge })));
+      }
+      if (id && sub === 'pipeline' && method === 'DELETE') return json(res, 200, await repoView(registry.setPipeline(repoOr404(id).id, null)));
       if (id && sub === 'worktrees' && method === 'GET') {
         const entry = repoOr404(id);
         const wts = await listWorktrees(entry.path);
@@ -122,6 +135,31 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
         return json(res, 200, registry.setGroup(id, b.repoIds.map(String)));
       }
       if (id && method === 'DELETE') return registry.removeGroup(id), json(res, 200, { ok: true });
+    }
+
+    if (resource === 'promotions') {
+      if (!id && method === 'GET') {
+        return json(res, 200, { promotions: worker.store.list(), worker: { polling: worker.isOwner, holder: worker.lockHolder(), intervalMs: worker.intervalMs } });
+      }
+      if (!id && method === 'POST') {
+        const b = await readBody(req);
+        if (!Array.isArray(b.repoIds) || b.repoIds.length === 0) throw new HttpError(400, 'repoIds must be a non-empty array');
+        const from = optStr(b.from)?.trim() || undefined;
+        const started = [];
+        const errors: { repo: string; error: string }[] = [];
+        for (const ref of b.repoIds.map(String)) {
+          try {
+            started.push(await worker.startPromotion(ref, { from }));
+          } catch (e) {
+            if (!(e instanceof PromotionError)) throw e;
+            errors.push({ repo: registry.find(ref)?.name ?? ref, error: e.message });
+          }
+        }
+        return json(res, started.length ? 201 : 400, { started, errors });
+      }
+      if (id === 'tick' && method === 'POST') return await worker.tick(), json(res, 200, { ok: true });
+      if (id && sub === 'stop' && method === 'POST') return json(res, 200, worker.stopPromotion(id));
+      if (id && sub === 'resume' && method === 'POST') return json(res, 200, await worker.resumePromotion(id));
     }
 
     if (resource === 'history' && method === 'GET') {
@@ -202,7 +240,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
       if (presented !== token) throw new HttpError(401, 'missing or wrong token');
       await api(req, res, url);
     } catch (e) {
-      const status = e instanceof HttpError ? e.status : e instanceof RegistryError ? 400 : 500;
+      const status = e instanceof HttpError ? e.status : e instanceof RegistryError || e instanceof PromotionError ? 400 : 500;
       if (!res.headersSent) json(res, status, { error: e instanceof Error ? e.message : String(e) });
       else res.end();
     }
@@ -213,13 +251,16 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
     server.listen(opts.port ?? 0, '127.0.0.1', () => ok());
   });
   const port = (server.address() as AddressInfo).port;
+  if (opts.pollPromotions !== false) worker.start();
   return {
     server,
     port,
     token,
     url: `http://127.0.0.1:${port}/?token=${token}`,
+    worker,
     close: () =>
       new Promise((ok) => {
+        worker.stop();
         server.closeAllConnections();
         server.close(() => ok());
       }),

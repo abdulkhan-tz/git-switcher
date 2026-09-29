@@ -1,7 +1,14 @@
-import type { Group, HistoryEntry, RepoEntry, RepoState, WorktreeDetails } from '@git-helper/core';
+import type { Group, HistoryEntry, Promotion, RepoEntry, RepoState, WorktreeDetails } from '@git-helper/core';
 import type { RunEvent } from '@git-helper/server';
 
 export type { RunEvent };
+
+export type { Promotion };
+
+export interface PromotionsView {
+  promotions: Promotion[];
+  worker: { polling: boolean; holder: number | null; intervalMs: number };
+}
 
 export type RepoView = RepoEntry & { missing: boolean; state: RepoState | null; error: string | null };
 
@@ -37,7 +44,10 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError(res.status, (data as { error?: string }).error ?? res.statusText);
+  if (!res.ok) {
+    const d = data as { error?: string; errors?: { repo: string; error: string }[] };
+    throw new ApiError(res.status, d.error ?? d.errors?.map((e) => `${e.repo}: ${e.error}`).join('; ') ?? res.statusText);
+  }
   return data as T;
 }
 
@@ -51,6 +61,14 @@ export const api = {
   updateRepo: (id: string, body: { name?: string; base?: string; remote?: string }) => call<RepoView>('PATCH', `/repos/${enc(id)}`, body),
   removeRepo: (id: string) => call<RepoEntry>('DELETE', `/repos/${enc(id)}`),
   worktrees: (id: string) => call<WorktreeDetails[]>('GET', `/repos/${enc(id)}/worktrees`),
+  setPipeline: (id: string, stages: string[], autoMerge: string[]) => call<RepoView>('PUT', `/repos/${enc(id)}/pipeline`, { stages, autoMerge }),
+  clearPipeline: (id: string) => call<RepoView>('DELETE', `/repos/${enc(id)}/pipeline`),
+  promotions: () => call<PromotionsView>('GET', '/promotions'),
+  startPromotions: (repoIds: string[], from?: string) =>
+    call<{ started: Promotion[]; errors: { repo: string; error: string }[] }>('POST', '/promotions', { repoIds, from }),
+  stopPromotion: (id: string) => call<Promotion>('POST', `/promotions/${enc(id)}/stop`),
+  resumePromotion: (id: string) => call<Promotion>('POST', `/promotions/${enc(id)}/resume`),
+  checkPromotions: () => call<{ ok: true }>('POST', '/promotions/tick'),
   groups: () => call<Group[]>('GET', '/groups'),
   setGroup: (name: string, repoIds: string[]) => call<Group>('PUT', `/groups/${enc(name)}`, { repoIds }),
   removeGroup: (name: string) => call<{ ok: true }>('DELETE', `/groups/${enc(name)}`),

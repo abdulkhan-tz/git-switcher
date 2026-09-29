@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { WorktreeDetails } from '@git-helper/core';
 import { api, type RepoView } from '../api';
+import { PipelineEditor } from './PipelineEditor';
 
 interface Props {
   repo: RepoView;
@@ -14,6 +15,7 @@ interface Props {
 export function RepoCard({ repo, selected, busy, onToggle, onChanged, onError }: Props) {
   const [worktrees, setWorktrees] = useState<WorktreeDetails[] | null>(null);
   const [editing, setEditing] = useState(false);
+  const [editingPipeline, setEditingPipeline] = useState(false);
   const [base, setBase] = useState(repo.base ?? '');
   const s = repo.state;
   const others = s ? s.worktrees.length - 1 : 0;
@@ -80,6 +82,22 @@ export function RepoCard({ repo, selected, busy, onToggle, onChanged, onError }:
             {s.uncommitted + s.untracked === 0 && s.inProgress === 'none' && <span className="badge ok">clean</span>}
           </div>
         </>
+      )}
+
+      {editingPipeline ? (
+        <PipelineEditor
+          repo={repo}
+          onSaved={() => {
+            setEditingPipeline(false);
+            onChanged();
+          }}
+          onCancel={() => setEditingPipeline(false)}
+          onError={onError}
+        />
+      ) : (
+        <button className="link pipeline-line" onClick={() => setEditingPipeline(true)} title="Upstream promotion order">
+          {repo.pipeline ? `⇡ ${repo.pipeline.stages.join(' → ')}` : '⇡ set up promotion pipeline'}
+        </button>
       )}
 
       <div className="card-foot">

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, Tray, nativeImage, shell, type MenuItemConstructorOptions } from 'electron';
+import { app, BrowserWindow, Menu, Notification, Tray, nativeImage, shell, type MenuItemConstructorOptions } from 'electron';
 import { fileURLToPath } from 'node:url';
 import { Registry, inspect, repoExists } from '@git-helper/core';
 import { startServer, type RunningServer } from '@git-helper/server';
@@ -90,12 +90,46 @@ async function refreshMenu(): Promise<void> {
         ]
       : []),
     { type: 'separator' },
+    promotionsItem(),
     { label: 'History', click: () => showWindow(dashboardUrl('history')) },
     { label: 'Refresh', click: () => void refreshMenu() },
     { type: 'separator' },
     { label: 'Quit git helper', role: 'quit' },
   ];
   tray.setContextMenu(Menu.buildFromTemplate(template));
+}
+
+function promotionsItem(): MenuItemConstructorOptions {
+  const running = server.worker.store.list().filter((p) => p.status === 'running');
+  const waiting = running.flatMap((p) => p.steps.filter((s) => s.status === 'open' && s.pr).map((s) => ({ p, s })));
+  const label = running.length ? `Promotions — ${running.length} running` : 'Promotions';
+  if (waiting.length === 0) return { label, click: () => showWindow(dashboardUrl('promotions')) };
+  return {
+    label,
+    submenu: [
+      { label: 'Open Promotions', click: () => showWindow(dashboardUrl('promotions')) },
+      { type: 'separator' },
+      ...waiting.map(({ p, s }): MenuItemConstructorOptions => ({
+        label: `Merge ${p.repoName}: ${s.from} → ${s.to} (#${s.pr!.number})`,
+        click: () => void shell.openExternal(s.pr!.url),
+      })),
+    ],
+  };
+}
+
+/** A desktop notification per PR that is waiting for the user; clicking it opens the PR. */
+function watchPromotions(): void {
+  server.worker.on((e) => {
+    if (e.type === 'updated') return void refreshMenu();
+    if (!Notification.isSupported() || !e.step.pr) return;
+    const n = new Notification({
+      title: `Merge ${e.promotion.repoName}: ${e.step.from} → ${e.step.to}`,
+      body: `PR #${e.step.pr.number} is ready${e.step.autoMerge ? ' (auto-merge on)' : ''}. Click to open it on GitHub.`,
+    });
+    const url = e.step.pr.url;
+    n.on('click', () => void shell.openExternal(url));
+    n.show();
+  });
 }
 
 async function smokeTest(): Promise<void> {
@@ -133,6 +167,7 @@ if (!app.requestSingleInstanceLock()) {
     icon.setTemplateImage(true);
     tray = new Tray(icon);
     tray.setToolTip('git helper');
+    watchPromotions();
     await refreshMenu();
     setInterval(() => void refreshMenu(), MENU_REFRESH_MS);
     app.on('activate', () => showWindow());
