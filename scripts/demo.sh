@@ -3,10 +3,10 @@
 # Usage: scripts/demo.sh [port]     (DEMO_DIR overrides where the repos are created)
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-DEMO_DIR="${DEMO_DIR:-${TMPDIR:-/tmp}/gsw-demo}"
+DEMO_DIR="${DEMO_DIR:-${TMPDIR:-/tmp}/git-helper-demo}"
 PORT="${1:-4321}"
-export GIT_SWITCHER_HOME="$DEMO_DIR/config"
-GSW=(node "$ROOT/packages/cli/dist/bin.js")
+export GIT_HELPER_HOME="$DEMO_DIR/config"
+CLI=(node "$ROOT/packages/cli/dist/bin.js")
 
 if [ ! -d "$DEMO_DIR/api" ]; then
   mkdir -p "$DEMO_DIR"
@@ -31,9 +31,9 @@ if [ ! -d "$DEMO_DIR/api" ]; then
   echo "local tweak" > "$DEMO_DIR/web/.env.local"
   git -C "$DEMO_DIR/api" worktree add -q "$DEMO_DIR/.api-login-wt" -b feature/login origin/feature/login
   echo "wip" > "$DEMO_DIR/.api-login-wt/scratch.txt"
-  "${GSW[@]}" add "$DEMO_DIR/api" --name api --base origin/develop >/dev/null
-  "${GSW[@]}" add "$DEMO_DIR/web" --name web --base origin/develop >/dev/null
-  "${GSW[@]}" group add work api web >/dev/null
+  "${CLI[@]}" add "$DEMO_DIR/api" --name api --base origin/develop >/dev/null
+  "${CLI[@]}" add "$DEMO_DIR/web" --name web --base origin/develop >/dev/null
+  "${CLI[@]}" group add work api web >/dev/null
 fi
 
-exec "${GSW[@]}" ui --port "$PORT" --no-open
+exec "${CLI[@]}" ui --port "$PORT" --no-open

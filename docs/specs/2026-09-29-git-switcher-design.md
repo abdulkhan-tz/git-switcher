@@ -1,4 +1,4 @@
-# git-switcher — Design Spec
+# git-helper — Design Spec
 
 - **Date:** 2026-09-29
 - **Status:** Implemented (phases 1–3)
@@ -18,7 +18,7 @@ Several local repos can be registered and viewed/switched together from a UI.
 
 ### Success criteria
 
-- `gsw <branch>` in any repo performs the sequence and leaves the working changes restored on
+- `git-helper <branch>` in any repo performs the sequence and leaves the working changes restored on
   the target branch, or stops with a precise recovery instruction.
 - It never pops a stash it did not create, and never deletes a dirty worktree without a second
   explicit confirmation.
@@ -43,9 +43,9 @@ Several local repos can be registered and viewed/switched together from a UI.
 ### 3.1 Packages (pnpm workspace, TypeScript, Node ≥ 22)
 
 ```
-git-switcher/
+git-helper/
 ├── packages/core      git logic only; no I/O to the user
-├── packages/cli       `gsw` binary
+├── packages/cli       `git-helper` binary (alias `gsw`)
 ├── packages/server    localhost HTTP API + Server-Sent Events
 ├── packages/web       dashboard SPA
 └── packages/desktop   Electron tray app hosting the web UI
@@ -99,12 +99,12 @@ stashMessage?, conflictedFiles?, recovery?: string, events[] }`.
 ### 3.4 Front ends
 
 - **CLI** — prompter = interactive terminal y/N. Commands:
-  - `gsw <branch>` — current repo
-  - `gsw <branch> --group <name>` / `--repos a,b` — multi-run
-  - `gsw add [path] [--name n] [--base origin/develop]`, `gsw rm <name>`, `gsw ls`
-  - `gsw group add <name> <repo...>`, `gsw group ls`
-  - `gsw history [--repo n]`
-  - `gsw ui` — start the server and open the browser
+  - `git-helper <branch>` — current repo
+  - `git-helper <branch> --group <name>` / `--repos a,b` — multi-run
+  - `git-helper add [path] [--name n] [--base origin/develop]`, `git-helper rm <name>`, `git-helper ls`
+  - `git-helper group add <name> <repo...>`, `git-helper group ls`
+  - `git-helper history [--repo n]`
+  - `git-helper ui` — start the server and open the browser
   - Exit code: 0 all switched; 1 any failed; 2 any cancelled (and none failed).
 - **Server** — binds `127.0.0.1` only, random free port unless `--port`. Endpoints for
   registry CRUD, `GET /repos/:id/state`, `POST /switch` (returns run id), `GET /runs/:id/events`
@@ -145,7 +145,7 @@ Each step emits events; any failure stops the run and produces `recovery` text.
    - Cancel → outcome `cancelled`, nothing changed yet.
 5. **Already on target** — if current branch = target, skip step 7 (checkout) but still do 6, 8, 9.
 6. **Stash** — if uncommitted or untracked changes exist:
-   `git stash push -u -m "gsw: <from> → <to> @ <ISO time> #<run id>"`.
+   `git stash push -u -m "git-helper: <from> → <to> @ <ISO time> #<run id>"`.
    Record that a stash was made. Clean tree → skip; record *no* stash (step 9 then does nothing).
 7. **Checkout** — `git switch <branch>`, or `git switch -c <branch> --track <remote>/<branch>`,
    or `git switch -c <branch> <base>` for a newly created branch.
@@ -164,7 +164,7 @@ readable). One repo failing or cancelling does not stop the others or roll anyth
 
 ## 5. Persistence
 
-Directory: `~/.config/git-switcher/` (respect `XDG_CONFIG_HOME`).
+Directory: `~/.config/git-helper/` (respect `XDG_CONFIG_HOME`).
 
 - `repos.json` — `{ version: 1, repos: [{ id, name, path, base?, remote? }], groups: [{ name, repoIds[] }] }`.
   Writes are atomic (temp file + rename). Paths are stored absolute and resolved to the

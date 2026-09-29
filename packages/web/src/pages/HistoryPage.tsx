@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState } from 'react';
-import type { HistoryEntry } from '@gsw/core';
+import type { HistoryEntry } from '@git-helper/core';
 import { api } from '../api';
 
 export function HistoryPage() {

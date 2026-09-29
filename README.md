@@ -1,7 +1,7 @@
-# git-switcher (`gsw`)
+# git-helper (`gsw`)
 
 `stash → switch → pull → pop` in one command, for any git repo. Stops at the first error and
-never loses work. Design: [docs/specs/2026-09-29-git-switcher-design.md](docs/specs/2026-09-29-git-switcher-design.md).
+never loses work. Design: [docs/specs/2026-09-29-git-helper-design.md](docs/specs/2026-09-29-git-helper-design.md).
 
 ## Setup
 
@@ -21,13 +21,13 @@ ln -s "$PWD/packages/cli/dist/bin.js" /usr/local/bin/gsw
 ## Use
 
 ```bash
-gsw feature/login                      # in any repo
-gsw add . --name api --base origin/develop
-gsw group add work api web
-gsw feature/login --group work         # both repos, each independently
-gsw ls                           # registered repos, branch, dirty state
-gsw history                      # past runs, incl. any stash a failed run left behind
-gsw ui                           # dashboard
+git-helper feature/login                      # in any repo
+git-helper add . --name api --base origin/develop
+git-helper group add work api web
+git-helper feature/login --group work         # both repos, each independently
+git-helper ls                           # registered repos, branch, dirty state
+git-helper history                      # past runs, incl. any stash a failed run left behind
+git-helper ui                           # dashboard
 ```
 
 Desktop tray app (macOS menu bar; also Windows/Linux):
@@ -45,8 +45,8 @@ Try the dashboard against throwaway repos without touching your registry:
 scripts/demo.sh
 ```
 
-Registry and history live in `~/.config/git-switcher/` (`$XDG_CONFIG_HOME` and
-`$GIT_SWITCHER_HOME` are honoured).
+Registry and history live in `~/.config/git-helper/` (`$XDG_CONFIG_HOME` and
+`$GIT_HELPER_HOME` are honoured).
 
 ## Packages
 

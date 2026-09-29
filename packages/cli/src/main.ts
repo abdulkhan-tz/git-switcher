@@ -1,4 +1,4 @@
-import { History, Registry, RegistryError, inspect, repoExists, repoRoot, switchBranch, type RunResult, type SwitchOptions } from '@gsw/core';
+import { History, Registry, RegistryError, inspect, repoExists, repoRoot, switchBranch, type RunResult, type SwitchOptions } from '@git-helper/core';
 import { parseArgs, str, type ParsedArgs } from './args.js';
 import { lineReader, makeOut, type Io, type Out } from './io.js';
 import { renderEvent, renderHistory, renderResult, renderSummary, terminalPrompter } from './render.js';
@@ -8,22 +8,22 @@ export const VERSION = '0.1.0';
 const USAGE = `gsw — stash, switch, pull, pop. Stops at the first error and never loses work.
 
 Usage
-  gsw <branch>                         switch the current repo
-  gsw <branch> --group <name>          switch every repo in a group
-  gsw <branch> --repos a,b             switch the named registered repos
-  gsw switch <branch> [...]            same, for branch names that clash with a command
+  git-helper <branch>                         switch the current repo
+  git-helper <branch> --group <name>          switch every repo in a group
+  git-helper <branch> --repos a,b             switch the named registered repos
+  git-helper switch <branch> [...]            same, for branch names that clash with a command
       --remote <name>                  remote to fetch/track (default: repo setting or origin)
       --base <ref>                     start point if the branch must be created
 
-  gsw add [path] [--name n] [--base origin/develop] [--remote origin]
-  gsw set <repo> [--name n] [--base ref] [--remote r]   ("" clears base/remote)
-  gsw rm <repo>
-  gsw ls                               registered repos with branch and state
-  gsw group add <name> <repo...>       create or replace a group
-  gsw group rm <name>
-  gsw group ls
-  gsw history [--repo <repo>] [--limit n]
-  gsw ui [--port n] [--no-open]        open the dashboard
+  git-helper add [path] [--name n] [--base origin/develop] [--remote origin]
+  git-helper set <repo> [--name n] [--base ref] [--remote r]   ("" clears base/remote)
+  git-helper rm <repo>
+  git-helper ls                               registered repos with branch and state
+  git-helper group add <name> <repo...>       create or replace a group
+  git-helper group rm <name>
+  git-helper group ls
+  git-helper history [--repo <repo>] [--limit n]
+  git-helper ui [--port n] [--no-open]        open the dashboard
 
 Exit codes: 0 all switched, 1 any failed, 2 any cancelled.`;
 
@@ -47,7 +47,7 @@ export async function main(argv: string[], io: Io, deps: Deps = {}): Promise<num
 
     switch (command) {
       case 'switch':
-        if (!rest[0]) throw new UsageError('gsw switch <branch>');
+        if (!rest[0]) throw new UsageError('git-helper switch <branch>');
         return await runSwitch(rest[0], args, io, out, registry, history);
       case 'add': {
         const entry = await registry.add(rest[0] ?? io.cwd, { name: str(args.flags, 'name'), base: str(args.flags, 'base'), remote: str(args.flags, 'remote') });
@@ -55,13 +55,13 @@ export async function main(argv: string[], io: Io, deps: Deps = {}): Promise<num
         return 0;
       }
       case 'set': {
-        if (!rest[0]) throw new UsageError('gsw set <repo> [--name n] [--base ref] [--remote r]');
+        if (!rest[0]) throw new UsageError('git-helper set <repo> [--name n] [--base ref] [--remote r]');
         const entry = registry.update(rest[0], { name: str(args.flags, 'name'), base: str(args.flags, 'base'), remote: str(args.flags, 'remote') });
         out.line(`Updated ${out.bold(entry.name)}: base ${entry.base ?? '(remote default)'}, remote ${entry.remote ?? 'origin'}`);
         return 0;
       }
       case 'rm': {
-        if (!rest[0]) throw new UsageError('gsw rm <repo>');
+        if (!rest[0]) throw new UsageError('git-helper rm <repo>');
         const entry = registry.remove(rest[0]);
         out.line(`Removed ${entry.name} (files untouched)`);
         return 0;
@@ -139,7 +139,7 @@ async function runSwitch(branch: string, args: ParsedArgs, io: Io, out: Out, reg
 async function list(out: Out, registry: Registry): Promise<number> {
   const repos = registry.list();
   if (repos.length === 0) {
-    out.line(out.dim('No repos registered. Add one with: gsw add [path]'));
+    out.line(out.dim('No repos registered. Add one with: git-helper add [path]'));
     return 0;
   }
   const width = Math.max(...repos.map((r) => r.name.length));
@@ -176,12 +176,12 @@ function group(rest: string[], out: Out, registry: Registry): number {
   const [sub, name, ...repos] = rest;
   switch (sub) {
     case 'add':
-      if (!name || repos.length === 0) throw new UsageError('gsw group add <name> <repo...>');
+      if (!name || repos.length === 0) throw new UsageError('git-helper group add <name> <repo...>');
       registry.setGroup(name, repos);
       out.line(`Group ${out.bold(name)}: ${registry.groupRepos(name).map((r) => r.name).join(', ')}`);
       return 0;
     case 'rm':
-      if (!name) throw new UsageError('gsw group rm <name>');
+      if (!name) throw new UsageError('git-helper group rm <name>');
       registry.removeGroup(name);
       out.line(`Removed group ${name}`);
       return 0;
@@ -190,6 +190,6 @@ function group(rest: string[], out: Out, registry: Registry): number {
       for (const g of registry.groups()) out.line(`${g.name}: ${registry.groupRepos(g.name).map((r) => r.name).join(', ')}`);
       return 0;
     default:
-      throw new UsageError('gsw group add|rm|ls');
+      throw new UsageError('git-helper group add|rm|ls');
   }
 }

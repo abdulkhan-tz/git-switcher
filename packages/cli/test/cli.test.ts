@@ -3,7 +3,7 @@ import { PassThrough } from 'node:stream';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { History, Registry } from '@gsw/core';
+import { History, Registry } from '@git-helper/core';
 import { main } from '../src/main.js';
 import { parseArgs } from '../src/args.js';
 import { makeFixture, sh } from '../../core/test/fixture.js';
@@ -14,7 +14,7 @@ function run(argv: string[], cwd: string, input = '', deps?: { registry: Registr
   let text = '';
   stdout.on('data', (d) => (text += d));
   stdin.end(input);
-  const dir = mkdtempSync(join(tmpdir(), 'gsw-cli-'));
+  const dir = mkdtempSync(join(tmpdir(), 'git-helper-cli-'));
   const d = deps ?? { registry: new Registry(join(dir, 'repos.json')), history: new History(join(dir, 'history.jsonl')) };
   return main(argv, { stdin, stdout, cwd, color: false }, d).then((code) => ({ code, text, ...d }));
 }
@@ -28,7 +28,7 @@ describe('parseArgs', () => {
   });
 });
 
-describe('gsw', () => {
+describe('git-helper', () => {
   it('switches the current repo from a subdirectory and records history; exit 0', async () => {
     const fx = makeFixture();
     fx.write(fx.work, 'shared.txt', 'wip\n');
@@ -97,7 +97,7 @@ describe('gsw', () => {
     expect((await run(['rm', 'web'], a.dir, '', deps)).code).toBe(1);
   });
 
-  it('`gsw switch ls` switches to a branch literally named ls; no args prints usage with exit 1', async () => {
+  it('`git-helper switch ls` switches to a branch literally named ls; no args prints usage with exit 1', async () => {
     const fx = makeFixture();
     fx.pushNewBranch('ls');
     expect((await run(['switch', 'ls'], fx.work)).code).toBe(0);

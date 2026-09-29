@@ -3,7 +3,7 @@ import { mkdtempSync } from 'node:fs';
 import { request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { History, Registry } from '@gsw/core';
+import { History, Registry } from '@git-helper/core';
 import { startServer, type RunEvent, type RunningServer } from '../src/index.js';
 import { makeFixture, sh } from '../../core/test/fixture.js';
 
@@ -14,14 +14,14 @@ afterEach(async () => {
 });
 
 async function boot() {
-  const dir = mkdtempSync(join(tmpdir(), 'gsw-srv-'));
+  const dir = mkdtempSync(join(tmpdir(), 'git-helper-srv-'));
   const registry = new Registry(join(dir, 'repos.json'));
   running = await startServer({ registry, history: new History(join(dir, 'h.jsonl')), token: 'secret' });
   const base = `http://127.0.0.1:${running.port}`;
   const call = async (method: string, path: string, body?: unknown, token = 'secret') => {
     const res = await fetch(base + path, {
       method,
-      headers: { 'x-gsw-token': token, 'content-type': 'application/json' },
+      headers: { 'x-git-helper-token': token, 'content-type': 'application/json' },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
     return { status: res.status, body: (await res.json()) as any };
@@ -67,7 +67,7 @@ describe('server', () => {
   it('rejects requests whose Host is not localhost', async () => {
     await boot();
     const status = await new Promise<number>((ok) => {
-      request({ host: '127.0.0.1', port: running!.port, path: '/api/repos', headers: { host: 'evil.example', 'x-gsw-token': 'secret' } }, (res) => ok(res.statusCode!)).end();
+      request({ host: '127.0.0.1', port: running!.port, path: '/api/repos', headers: { host: 'evil.example', 'x-git-helper-token': 'secret' } }, (res) => ok(res.statusCode!)).end();
     });
     expect(status).toBe(403);
   });

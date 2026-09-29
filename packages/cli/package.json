@@ -1,9 +1,10 @@
 {
-  "name": "@gsw/cli",
+  "name": "@git-helper/cli",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "bin": {
+    "git-helper": "dist/bin.js",
     "gsw": "dist/bin.js"
   },
   "main": "dist/main.js",
@@ -12,7 +13,7 @@
     "typecheck": "tsc -p . --noEmit"
   },
   "dependencies": {
-    "@gsw/core": "workspace:*",
-    "@gsw/server": "workspace:*"
+    "@git-helper/core": "workspace:*",
+    "@git-helper/server": "workspace:*"
   }
 }

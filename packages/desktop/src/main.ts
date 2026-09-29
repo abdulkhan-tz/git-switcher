@@ -1,7 +1,7 @@
 import { app, BrowserWindow, Menu, Tray, nativeImage, shell, type MenuItemConstructorOptions } from 'electron';
 import { fileURLToPath } from 'node:url';
-import { Registry, inspect, repoExists } from '@gsw/core';
-import { startServer, type RunningServer } from '@gsw/server';
+import { Registry, inspect, repoExists } from '@git-helper/core';
+import { startServer, type RunningServer } from '@git-helper/server';
 
 // packages/desktop/dist → packages/web/dist and packages/desktop/assets
 const WEB_DIR = fileURLToPath(new URL('../../web/dist', import.meta.url));
@@ -28,7 +28,7 @@ function showWindow(url = dashboardUrl()): void {
       height: 760,
       minWidth: 420,
       minHeight: 400,
-      title: 'git-switcher',
+      title: 'git helper',
       show: !SMOKE,
       webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
     });
@@ -93,7 +93,7 @@ async function refreshMenu(): Promise<void> {
     { label: 'History', click: () => showWindow(dashboardUrl('history')) },
     { label: 'Refresh', click: () => void refreshMenu() },
     { type: 'separator' },
-    { label: 'Quit git-switcher', role: 'quit' },
+    { label: 'Quit git helper', role: 'quit' },
   ];
   tray.setContextMenu(Menu.buildFromTemplate(template));
 }
@@ -132,7 +132,7 @@ if (!app.requestSingleInstanceLock()) {
     const icon = nativeImage.createFromPath(ICON);
     icon.setTemplateImage(true);
     tray = new Tray(icon);
-    tray.setToolTip('git-switcher');
+    tray.setToolTip('git helper');
     await refreshMenu();
     setInterval(() => void refreshMenu(), MENU_REFRESH_MS);
     app.on('activate', () => showWindow());

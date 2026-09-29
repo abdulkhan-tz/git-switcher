@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { WorktreeDetails } from '@gsw/core';
+import type { WorktreeDetails } from '@git-helper/core';
 import { api, type RepoView } from '../api';
 
 interface Props {

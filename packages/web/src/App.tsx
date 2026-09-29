@@ -20,7 +20,7 @@ export function App() {
     <div className="app">
       <header className="topbar">
         <div className="brand">
-          <span className="logo" aria-hidden>⎇</span> git-switcher
+          <span className="logo" aria-hidden>⎇</span> git helper
         </div>
         <nav>
           {PAGES.map((p) => (
@@ -34,7 +34,7 @@ export function App() {
         {api.hasToken() ? (
           <Page />
         ) : (
-          <div className="notice error">No access token. Open the dashboard with <code>gsw ui</code>, which puts the token in the URL.</div>
+          <div className="notice error">No access token. Open the dashboard with <code>git-helper ui</code>, which puts the token in the URL.</div>
         )}
       </main>
     </div>

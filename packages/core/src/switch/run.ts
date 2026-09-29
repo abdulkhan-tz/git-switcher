@@ -204,7 +204,7 @@ export async function switchBranch(
     emit('stash', 'start');
     const counts = await changeCounts(repo);
     if (counts.uncommitted + counts.untracked > 0) {
-      const message = `gsw: ${from ?? '(detached)'} → ${branch} @ ${now().toISOString()} #${runId}`;
+      const message = `git-helper: ${from ?? '(detached)'} → ${branch} @ ${now().toISOString()} #${runId}`;
       await git(repo, ['stash', 'push', '--include-untracked', '-m', message]);
       if (!(await findStash(repo, `#${runId}`))) throw new StepFailure('stash', 'git stash reported success but no stash was created');
       stashMessage = message;

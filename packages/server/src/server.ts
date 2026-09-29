@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { extname, join, normalize, resolve } from 'node:path';
 import type { AddressInfo } from 'node:net';
-import { History, Registry, RegistryError, inspect, listWorktrees, repoExists, worktreeDetails, type RepoEntry } from '@gsw/core';
+import { History, Registry, RegistryError, inspect, listWorktrees, repoExists, worktreeDetails, type RepoEntry } from '@git-helper/core';
 import { Batch } from './runs.js';
 
 export interface ServerOptions {
@@ -176,7 +176,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
   function serveStatic(res: ServerResponse, pathname: string): void {
     if (!opts.webDir || !existsSync(opts.webDir)) {
       res.writeHead(200, { 'content-type': 'text/plain' });
-      res.end('git-switcher API is running. Build packages/web to get the dashboard.');
+      res.end('git-helper API is running. Build packages/web to get the dashboard.');
       return;
     }
     const root = resolve(opts.webDir);
@@ -198,7 +198,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
       const url = new URL(req.url ?? '/', 'http://127.0.0.1');
       if (!url.pathname.startsWith('/api/')) return serveStatic(res, url.pathname);
       // EventSource cannot set headers, so the token may also come as ?token=.
-      const presented = req.headers['x-gsw-token'] ?? url.searchParams.get('token');
+      const presented = req.headers['x-git-helper-token'] ?? url.searchParams.get('token');
       if (presented !== token) throw new HttpError(401, 'missing or wrong token');
       await api(req, res, url);
     } catch (e) {

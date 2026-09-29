@@ -1,5 +1,5 @@
 {
-  "name": "@gsw/web",
+  "name": "@git-helper/web",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -13,8 +13,8 @@
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
-    "@gsw/core": "workspace:*",
-    "@gsw/server": "workspace:*",
+    "@git-helper/core": "workspace:*",
+    "@git-helper/server": "workspace:*",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.0",

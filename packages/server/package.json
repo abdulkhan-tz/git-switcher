@@ -1,5 +1,5 @@
 {
-  "name": "@gsw/server",
+  "name": "@git-helper/server",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -7,5 +7,5 @@
   "types": "dist/index.d.ts",
   "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
   "scripts": { "build": "tsc -p .", "typecheck": "tsc -p . --noEmit" },
-  "dependencies": { "@gsw/core": "workspace:*" }
+  "dependencies": { "@git-helper/core": "workspace:*" }
 }

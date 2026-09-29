@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { PromptRequest } from '@gsw/core';
+import type { PromptRequest } from '@git-helper/core';
 
 export function PromptDialog({ repoName, request, onAnswer }: { repoName: string; request: PromptRequest; onAnswer(answer: boolean): void }) {
   const [typed, setTyped] = useState('');

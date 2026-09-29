@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { Group } from '@gsw/core';
+import type { Group } from '@git-helper/core';
 import { api, type RepoView } from '../api';
 import { AddRepo } from '../components/AddRepo';
 import { RepoCard } from '../components/RepoCard';
@@ -121,7 +121,7 @@ export function ReposPage() {
       ) : repos.length === 0 ? (
         <div className="empty">
           <p>No repos registered yet.</p>
-          <p className="muted">Add one above, or run <code>gsw add /path/to/repo</code>.</p>
+          <p className="muted">Add one above, or run <code>git-helper add /path/to/repo</code>.</p>
         </div>
       ) : (
         <div className="grid">

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { PromptRequest, RunResult, StepEvent } from '@gsw/core';
+import type { PromptRequest, RunResult, StepEvent } from '@git-helper/core';
 import { api, type RepoView, type RunEvent } from '../api';
 import { PromptDialog } from './PromptDialog';
 

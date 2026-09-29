@@ -1,12 +1,12 @@
-import type { Group, HistoryEntry, RepoEntry, RepoState, WorktreeDetails } from '@gsw/core';
-import type { RunEvent } from '@gsw/server';
+import type { Group, HistoryEntry, RepoEntry, RepoState, WorktreeDetails } from '@git-helper/core';
+import type { RunEvent } from '@git-helper/server';
 
 export type { RunEvent };
 
 export type RepoView = RepoEntry & { missing: boolean; state: RepoState | null; error: string | null };
 
 // The token arrives once in the URL (?token=…); keep it for reloads, then drop it from the address bar.
-const TOKEN_KEY = 'gsw-token';
+const TOKEN_KEY = 'git-helper-token';
 function readToken(): string {
   const fromUrl = new URLSearchParams(location.search).get('token');
   try {
@@ -33,7 +33,7 @@ export class ApiError extends Error {
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(`/api${path}`, {
     method,
-    headers: { 'x-gsw-token': token, ...(body !== undefined ? { 'content-type': 'application/json' } : {}) },
+    headers: { 'x-git-helper-token': token, ...(body !== undefined ? { 'content-type': 'application/json' } : {}) },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const data = await res.json().catch(() => ({}));

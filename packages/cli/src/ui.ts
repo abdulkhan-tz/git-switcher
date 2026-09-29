@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { startServer } from '@gsw/server';
+import { startServer } from '@git-helper/server';
 import type { Out } from './io.js';
 
 /** The built dashboard, relative to this file: packages/cli/dist → packages/web/dist. */

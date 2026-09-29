@@ -1,5 +1,5 @@
 {
-  "name": "git-switcher",
+  "name": "git-helper",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@10.33.0",
@@ -10,7 +10,7 @@
     "build": "pnpm -r run build",
     "test": "vitest run",
     "typecheck": "pnpm -r run typecheck",
-    "desktop": "pnpm build && pnpm --filter @gsw/desktop start"
+    "desktop": "pnpm build && pnpm --filter @git-helper/desktop start"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

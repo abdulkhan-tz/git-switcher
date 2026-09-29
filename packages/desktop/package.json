@@ -1,5 +1,5 @@
 {
-  "name": "@gsw/desktop",
+  "name": "@git-helper/desktop",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -11,8 +11,8 @@
     "smoke": "electron . --smoke"
   },
   "dependencies": {
-    "@gsw/core": "workspace:*",
-    "@gsw/server": "workspace:*"
+    "@git-helper/core": "workspace:*",
+    "@git-helper/server": "workspace:*"
   },
   "devDependencies": {
     "electron": "^44.4.5"
