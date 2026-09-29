@@ -1,37 +1,45 @@
-import { History, Registry, RegistryError, inspect, repoExists, repoRoot, switchBranch, type RunResult, type SwitchOptions } from '@git-helper/core';
+import { History, PromotionError, Registry, RegistryError, inspect, repoExists, repoRoot, switchBranch, type RunResult, type SwitchOptions } from '@git-helper/core';
 import { parseArgs, str, type ParsedArgs } from './args.js';
 import { lineReader, makeOut, type Io, type Out } from './io.js';
+import { pipelineCommand, promoteCommand, promotionsCommand, PromoteUsageError, type PromoteDeps } from './promote.js';
 import { renderEvent, renderHistory, renderResult, renderSummary, terminalPrompter } from './render.js';
 
 export const VERSION = '0.1.0';
 
-const USAGE = `gsw — stash, switch, pull, pop. Stops at the first error and never loses work.
+const USAGE = `git helper — switch branches safely and promote them upstream. (alias: gsw)
 
-Usage
-  git-helper <branch>                         switch the current repo
-  git-helper <branch> --group <name>          switch every repo in a group
-  git-helper <branch> --repos a,b             switch the named registered repos
-  git-helper switch <branch> [...]            same, for branch names that clash with a command
-      --remote <name>                  remote to fetch/track (default: repo setting or origin)
-      --base <ref>                     start point if the branch must be created
+Switch  (stash → switch → pull → pop; stops at the first error, never loses work)
+  git-helper <branch>                        switch the current repo
+  git-helper <branch> --group <name>         switch every repo in a group
+  git-helper <branch> --repos a,b            switch the named registered repos
+  git-helper switch <branch> [...]           same, for branch names that clash with a command
+      --remote <name>                        remote to fetch/track (default: repo setting or origin)
+      --base <ref>                           start point if the branch must be created
 
+Promote  (one PR per step; the next opens when you merge the previous one)
+  git-helper pipeline set <repo> <stage> <stage>… [--auto-merge develop:qa,qa:stage]
+  git-helper pipeline show [repo] | clear <repo>
+  git-helper promote <repo…> | --group <name> [--from <stage>] [--watch] [--poll <sec>]
+  git-helper promotions [stop <id> | resume <id>]
+
+Repos
   git-helper add [path] [--name n] [--base origin/develop] [--remote origin]
   git-helper set <repo> [--name n] [--base ref] [--remote r]   ("" clears base/remote)
   git-helper rm <repo>
-  git-helper ls                               registered repos with branch and state
-  git-helper group add <name> <repo...>       create or replace a group
-  git-helper group rm <name>
-  git-helper group ls
+  git-helper ls                              registered repos with branch and state
+  git-helper group add <name> <repo...>      create or replace a group
+  git-helper group rm <name> | group ls
   git-helper history [--repo <repo>] [--limit n]
-  git-helper ui [--port n] [--no-open]        open the dashboard
+  git-helper ui [--port n] [--no-open]       open the dashboard (also runs the promotion worker)
 
-Exit codes: 0 all switched, 1 any failed, 2 any cancelled.`;
+Exit codes: 0 success, 1 any failure, 2 any cancelled switch.`;
 
 export interface Deps {
   registry?: Registry;
   history?: History;
   /** Launches the dashboard (phase 2); injected so the CLI does not hard-depend on the server. */
   startUi?: (opts: { port?: number; open: boolean }, out: Out) => Promise<number>;
+  promote?: Omit<PromoteDeps, 'registry'>;
 }
 
 export async function main(argv: string[], io: Io, deps: Deps = {}): Promise<number> {
@@ -76,6 +84,12 @@ export async function main(argv: string[], io: Io, deps: Deps = {}): Promise<num
         renderHistory(out, history.list({ repo, limit: Number(str(args.flags, 'limit') ?? 20) }));
         return 0;
       }
+      case 'pipeline':
+        return pipelineCommand(rest, args, out, registry);
+      case 'promote':
+        return await promoteCommand(rest, args, out, { registry, ...deps.promote });
+      case 'promotions':
+        return await promotionsCommand(rest, out, { registry, ...deps.promote });
       case 'ui': {
         if (!deps.startUi) throw new UsageError('the dashboard is not available in this build');
         const port = str(args.flags, 'port');
@@ -85,8 +99,8 @@ export async function main(argv: string[], io: Io, deps: Deps = {}): Promise<num
         return await runSwitch(command, args, io, out, registry, history);
     }
   } catch (e) {
-    if (e instanceof UsageError) out.line(out.red(`usage: ${e.message}`));
-    else if (e instanceof RegistryError) out.line(out.red(e.message));
+    if (e instanceof UsageError || e instanceof PromoteUsageError) out.line(out.red(`usage: ${e.message}`));
+    else if (e instanceof RegistryError || e instanceof PromotionError) out.line(out.red(e.message));
     else out.line(out.red(e instanceof Error ? e.message : String(e)));
     return 1;
   }

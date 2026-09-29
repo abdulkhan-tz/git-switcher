@@ -103,6 +103,6 @@ describe('git-helper', () => {
     expect((await run(['switch', 'ls'], fx.work)).code).toBe(0);
     const usage = await run([], fx.work);
     expect(usage.code).toBe(1);
-    expect(usage.text).toContain('Usage');
+    expect(usage.text).toContain('git helper —');
   });
 });

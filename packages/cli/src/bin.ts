@@ -7,5 +7,9 @@ const code = await main(process.argv.slice(2), {
   stdout: process.stdout,
   cwd: process.cwd(),
   color: Boolean(process.stdout.isTTY) && !process.env.NO_COLOR,
-}, { startUi });
+}, {
+  startUi,
+  // Only --watch installs a SIGINT handler, so Ctrl-C still kills everything else normally.
+  promote: { interrupt: () => new Promise<void>((resolve) => process.once('SIGINT', () => resolve())) },
+});
 process.exit(code);
