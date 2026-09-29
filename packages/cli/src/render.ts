@@ -68,6 +68,12 @@ export function terminalPrompter(out: Out, ask: (q: string) => Promise<string>):
         const a = await ask('Delete that worktree and continue? [y/N] ');
         return /^y(es)?$/i.test(a);
       }
+      case 'fixBranchCase': {
+        out.line(out.yellow(`Local branch "${req.branch}" is stored as "${req.stored}".`));
+        out.line(out.dim('  (macOS ignores case in file names, so git folded it into an existing directory)'));
+        const a = await ask(`Rename it to exactly "${req.branch}"? [y/N] `);
+        return /^y(es)?$/i.test(a);
+      }
       case 'confirmDirtyWorktree': {
         out.line(out.red(`The worktree has ${req.worktree.uncommitted + req.worktree.untracked} uncommitted/untracked file(s).`));
         out.line(out.red('Deleting it DESTROYS those changes permanently.'));

@@ -1,6 +1,6 @@
 import type { WorktreeDetails } from '../inspect/types.js';
 
-export const STEPS = ['preflight', 'fetch', 'resolve', 'worktree', 'stash', 'checkout', 'pull', 'pop'] as const;
+export const STEPS = ['preflight', 'fetch', 'resolve', 'worktree', 'refs', 'stash', 'checkout', 'pull', 'pop'] as const;
 export type Step = (typeof STEPS)[number];
 
 export interface SwitchOptions {
@@ -16,7 +16,9 @@ export interface SwitchOptions {
 export type PromptRequest =
   | { kind: 'createBranch'; repo: string; branch: string; base: string; baseIsFallback: boolean }
   | { kind: 'removeWorktree'; repo: string; branch: string; worktree: WorktreeDetails }
-  | { kind: 'confirmDirtyWorktree'; repo: string; branch: string; worktree: WorktreeDetails };
+  | { kind: 'confirmDirtyWorktree'; repo: string; branch: string; worktree: WorktreeDetails }
+  /** The local branch exists but git stored it with different case (e.g. `Feature/x` for `feature/x`). */
+  | { kind: 'fixBranchCase'; repo: string; branch: string; stored: string };
 
 /** Answers a question the engine cannot decide alone. true = proceed, false = cancel. */
 export type Prompter = (request: PromptRequest) => Promise<boolean>;

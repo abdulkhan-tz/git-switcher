@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { join } from 'node:path';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { findStash, switchBranch, switchMany } from '../src/index.js';
 import { makeFixture, scripted, sh } from './fixture.js';
 
@@ -244,5 +245,80 @@ describe('default base without origin/HEAD', () => {
     const prompt = scripted(false);
     await switchBranch(fx.work, 'feat-3', {}, prompt);
     expect(prompt.asked[0]).toMatchObject({ base: 'origin/main', baseIsFallback: false });
+  });
+});
+
+// On a case-insensitive filesystem (macOS default) a loose ref directory `Ticket/` swallows new
+// `ticket/...` refs, which then read back as `Ticket/...`.
+const caseInsensitiveFs = (() => {
+  const d = mkdtempSync(join(tmpdir(), 'git-helper-case-'));
+  writeFileSync(join(d, 'a'), '');
+  return existsSync(join(d, 'A'));
+})();
+const heads = (repo: string) => sh(repo, 'for-each-ref', '--format=%(refname)', 'refs/heads/').split('\n');
+
+describe.skipIf(!caseInsensitiveFs)('case-folding filesystems', () => {
+  function withCapitalFeatureDir() {
+    const fx = makeFixture();
+    fx.pushNewBranch('Ticket/old');
+    fx.pushNewBranch('ticket/new');
+    sh(fx.work, 'fetch', '-q');
+    sh(fx.work, 'branch', 'Ticket/old', 'origin/Ticket/old'); // creates loose .git/refs/heads/Ticket/
+    return fx;
+  }
+
+  it('tracking a remote branch keeps the exact case typed', async () => {
+    const fx = withCapitalFeatureDir();
+    const r = await switchBranch(fx.work, 'ticket/new', {}, scripted());
+    expect(r.outcome).toBe('switched');
+    expect(heads(fx.work)).toContain('refs/heads/ticket/new');
+    expect(heads(fx.work)).not.toContain('refs/heads/Ticket/new');
+    expect(heads(fx.work)).toContain('refs/heads/Ticket/old'); // other branches untouched
+    expect(sh(fx.work, 'rev-parse', '--abbrev-ref', '@{u}')).toBe('origin/ticket/new');
+  });
+
+  it('creating a new branch keeps the exact case typed', async () => {
+    const fx = withCapitalFeatureDir();
+    const r = await switchBranch(fx.work, 'ticket/brand-new', {}, scripted(true));
+    expect(r.outcome).toBe('switched');
+    expect(heads(fx.work)).toContain('refs/heads/ticket/brand-new');
+  });
+
+  it('a folded remote-tracking directory does not swallow a freshly fetched branch', async () => {
+    const fx = makeFixture();
+    fx.pushNewBranch('Ticket/old');
+    sh(fx.work, 'fetch', '-q');
+    sh(fx.work, 'update-ref', 'refs/remotes/origin/Ticket/old', 'origin/Ticket/old'); // loose remote dir
+    fx.pushNewBranch('ticket/later');
+    const r = await switchBranch(fx.work, 'ticket/later', {}, scripted());
+    expect(r.outcome).toBe('switched');
+    expect(heads(fx.work)).toContain('refs/heads/ticket/later');
+    expect(sh(fx.work, 'rev-parse', '--abbrev-ref', '@{u}')).toBe('origin/ticket/later');
+  });
+
+  it('offers to repair a branch already stored with the wrong case, including the current one', async () => {
+    const fx = withCapitalFeatureDir();
+    // Reproduce the fold the old way: HEAD says feature/new, the ref is stored as Ticket/new.
+    sh(fx.work, 'switch', '-q', '-c', 'ticket/new', '--track', 'origin/ticket/new');
+    expect(heads(fx.work)).toContain('refs/heads/Ticket/new');
+    fx.write(fx.work, 'wip.txt', 'wip');
+    const prompt = scripted(true);
+    const r = await switchBranch(fx.work, 'ticket/new', {}, prompt);
+    expect(prompt.asked[0]).toMatchObject({ kind: 'fixBranchCase', branch: 'ticket/new', stored: 'Ticket/new' });
+    expect(r.outcome).toBe('switched');
+    expect(heads(fx.work)).toContain('refs/heads/ticket/new');
+    expect(heads(fx.work)).not.toContain('refs/heads/Ticket/new');
+    expect(sh(fx.work, 'rev-parse', '--abbrev-ref', '@{u}')).toBe('origin/ticket/new');
+    expect(fx.read(fx.work, 'wip.txt')).toBe('wip');
+  });
+
+  it('declining the repair cancels with nothing changed', async () => {
+    const fx = withCapitalFeatureDir();
+    sh(fx.work, 'switch', '-q', '-c', 'ticket/new', '--track', 'origin/ticket/new');
+    sh(fx.work, 'switch', '-q', 'main');
+    const r = await switchBranch(fx.work, 'ticket/new', {}, scripted(false));
+    expect(r.outcome).toBe('cancelled');
+    expect(heads(fx.work)).toContain('refs/heads/Ticket/new');
+    expect(branchOf(fx.work)).toBe('main');
   });
 });

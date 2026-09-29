@@ -105,4 +105,22 @@ describe('git-helper', () => {
     expect(usage.code).toBe(1);
     expect(usage.text).toContain('git helper —');
   });
+
+  it('asks before repairing a branch stored with the wrong case', async () => {
+    const { existsSync, writeFileSync, mkdtempSync: mk } = await import('node:fs');
+    const probe = mk(join(tmpdir(), 'git-helper-ci-'));
+    writeFileSync(join(probe, 'a'), '');
+    if (!existsSync(join(probe, 'A'))) return; // case-sensitive disk: nothing folds
+    const fx = makeFixture();
+    fx.pushNewBranch('Ticket/old');
+    fx.pushNewBranch('ticket/new');
+    sh(fx.work, 'fetch', '-q');
+    sh(fx.work, 'branch', 'Ticket/old', 'origin/Ticket/old');
+    sh(fx.work, 'switch', '-q', '-c', 'ticket/new', '--track', 'origin/ticket/new'); // folds to Ticket/new
+    const { code, text } = await run(['ticket/new'], fx.work, 'y\n');
+    expect(text).toContain('is stored as "Ticket/new"');
+    expect(text).toContain('renamed Ticket/new → ticket/new');
+    expect(code).toBe(0);
+    expect(sh(fx.work, 'for-each-ref', '--format=%(refname)', 'refs/heads/ticket/new')).toBe('refs/heads/ticket/new');
+  });
 });

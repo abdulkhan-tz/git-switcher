@@ -36,6 +36,16 @@ export function PromptDialog({ repoName, request, onAnswer }: { repoName: string
       danger = true;
       break;
     }
+    case 'fixBranchCase':
+      title = `Fix the case of “${request.branch}”?`;
+      body = (
+        <p>
+          The local branch is stored as <code>{request.stored}</code>. macOS ignores case in file names, so git folded it into an
+          existing directory. Rename it to exactly <code>{request.branch}</code>? Commits and upstream are kept.
+        </p>
+      );
+      confirmLabel = 'Rename branch';
+      break;
     case 'confirmDirtyWorktree':
       title = 'Uncommitted changes will be destroyed';
       body = (

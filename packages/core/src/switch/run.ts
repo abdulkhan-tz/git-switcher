@@ -1,4 +1,6 @@
 import { randomBytes } from 'node:crypto';
+import { existsSync, readdirSync } from 'node:fs';
+import { isAbsolute, join } from 'node:path';
 import { git, gitMaybe, GitError, runGit } from '../git/exec.js';
 import {
   canonical,
@@ -65,6 +67,74 @@ async function defaultBase(repo: string, remote: string, hasRemote: boolean): Pr
   return { base: 'HEAD', fallback: true };
 }
 
+/**
+ * On a case-insensitive disk (the macOS default) a loose ref directory such as `refs/heads/Feature/`
+ * swallows a new `feature/x` ref, which then reads back as `Feature/x`. Returns the on-disk ref
+ * directories that would do that to `branch`, under local heads and the remote's tracking refs.
+ */
+function caseConflictingDirs(commonDir: string, branch: string, remote: string): string[] {
+  const dirs = branch.split('/').slice(0, -1);
+  const conflicts: string[] = [];
+  for (const base of ['refs/heads', `refs/remotes/${remote}`]) {
+    let abs = join(commonDir, base);
+    let rel = base;
+    for (const part of dirs) {
+      let entries: string[];
+      try {
+        entries = existsSync(abs) ? readdirSync(abs) : [];
+      } catch {
+        break;
+      }
+      const hit = entries.find((e) => e.toLowerCase() === part.toLowerCase());
+      if (!hit) break;
+      if (hit !== part) {
+        conflicts.push(`${rel}/${hit}/`);
+        break;
+      }
+      abs = join(abs, hit);
+      rel = `${rel}/${hit}`;
+    }
+  }
+  return conflicts;
+}
+
+/** A checkout whose HEAD names a branch that git stored with different case (an earlier fold). */
+interface FoldedHead {
+  path: string;
+  head: string;
+  stored: string;
+}
+
+/**
+ * Packing refs removes a folding directory, but it also makes a folded HEAD unresolvable: HEAD says
+ * `feature/x`, the packed ref is `Feature/x`, and packed lookups are case-sensitive. So every
+ * checkout on a folded branch has to be known before packing.
+ */
+async function foldedHeads(repo: string): Promise<FoldedHead[]> {
+  const exact = new Set(await refNames(repo, 'refs/heads/'));
+  const byLower = new Map([...exact].map((n) => [n.toLowerCase(), n]));
+  return (await listWorktrees(repo)).flatMap((w) => {
+    if (!w.branch || exact.has(w.branch)) return [];
+    const stored = byLower.get(w.branch.toLowerCase());
+    return stored ? [{ path: w.path, head: w.branch, stored }] : [];
+  });
+}
+
+/** `git pack-refs --all` (what `git gc` does), then confirm no folding directory is left. */
+async function packRefs(repo: string, commonDir: string, branch: string, remote: string, step: Step): Promise<void> {
+  await git(repo, ['pack-refs', '--all']);
+  const left = caseConflictingDirs(commonDir, branch, remote);
+  if (left.length > 0) {
+    throw new StepFailure(step, `${left.join(', ')} would store "${branch}" with the wrong case, and packing refs did not clear it`);
+  }
+}
+
+async function storedAs(repo: string, branch: string): Promise<string | null> {
+  const lower = branch.toLowerCase();
+  const names = await refNames(repo, 'refs/heads/');
+  return names.includes(branch) ? branch : (names.find((n) => n.toLowerCase() === lower) ?? null);
+}
+
 async function validateBranchName(repo: string, branch: string): Promise<void> {
   if (!branch || branch.startsWith('-')) throw new StepFailure('resolve', `"${branch}" is not a valid branch name`);
   const ok = await runGit(repo, ['check-ref-format', '--branch', branch]);
@@ -122,15 +192,57 @@ export async function switchBranch(
     if (op !== 'none') throw new StepFailure('preflight', `a ${op} is in progress; finish or abort it first`);
     from = await currentBranch(repo);
     await git(repo, ['worktree', 'prune']);
-    emit('preflight', 'ok', `on ${from ?? '(detached HEAD)'}`);
+    let commonDir = await git(repo, ['rev-parse', '--git-common-dir']);
+    if (!isAbsolute(commonDir)) commonDir = join(repo, commonDir);
+    // Keep the branch name's exact case on a case-insensitive disk (see caseConflictingDirs).
+    const folded = await foldedHeads(repo);
+    const otherFolded = folded.filter((f) => f.head !== branch);
+    const targetFolded = folded.some((f) => f.head === branch);
+    const conflicts = caseConflictingDirs(commonDir, branch, remote);
+    if (conflicts.length > 0 && otherFolded.length > 0) {
+      throw new StepFailure(
+        'preflight',
+        `${conflicts.join(', ')} would change the case of "${branch}", and fixing that would detach checkouts on branches already stored with the wrong case: ` +
+          otherFolded.map((f) => `${f.path} (on ${f.head}, stored as ${f.stored})`).join('; ') +
+          ' — run git-helper with that exact branch name in each of them first',
+      );
+    }
+    // With the target itself folded, packing waits until the rename is confirmed (refs step).
+    let packNote = '';
+    if (conflicts.length > 0 && !targetFolded) {
+      await packRefs(repo, commonDir, branch, remote, 'preflight');
+      packNote = `; packed refs so ${conflicts.join(', ')} cannot change the case of "${branch}"`;
+    }
+    emit('preflight', 'ok', `on ${from ?? '(detached HEAD)'}${packNote}`);
 
     // 2. Fetch
     emit('fetch', 'start');
+    let refetchAfterRepair = false;
+    let remoteBranches: string[] = [];
     const remotes = (await git(repo, ['remote'])).split('\n').filter(Boolean);
     const hasRemote = remotes.includes(remote);
     if (hasRemote) {
       await git(repo, ['fetch', '--prune', remote]);
-      emit('fetch', 'ok', `fetched ${remote}`);
+      // The fetch itself may have created a differently-cased tracking directory; if so, pack and
+      // fetch again so the tracking ref for this branch lands with its real name.
+      let note = '';
+      // Tracking refs can themselves be folded on this disk, so the remote's own branch list is the
+      // truth for names; refetch when the tracking ref for this branch does not match it exactly.
+      remoteBranches = (await git(repo, ['ls-remote', '--heads', remote]))
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => line.split('\t')[1]!.replace(/^refs\/heads\//, ''));
+      const tracking = await refNames(repo, `refs/remotes/${remote}/`);
+      const trackingWrong = remoteBranches.includes(branch) && !tracking.includes(branch);
+      if (trackingWrong || caseConflictingDirs(commonDir, branch, remote).length > 0) {
+        if (targetFolded) refetchAfterRepair = true;
+        else {
+          await packRefs(repo, commonDir, branch, remote, 'fetch');
+          await git(repo, ['fetch', '--prune', remote]);
+          note = '; packed refs and fetched again to keep the exact case';
+        }
+      }
+      emit('fetch', 'ok', `fetched ${remote}${note}`);
     } else if (remotes.length === 0) {
       emit('fetch', 'skip', 'repo has no remotes');
     } else {
@@ -141,20 +253,30 @@ export async function switchBranch(
     emit('resolve', 'start');
     await validateBranchName(repo, branch);
     const local = await refNames(repo, 'refs/heads/');
-    const remoteBranches = hasRemote ? await refNames(repo, `refs/remotes/${remote}/`) : [];
+
     const lower = branch.toLowerCase();
-    const caseVariants = [
-      ...local.filter((b) => b !== branch && b.toLowerCase() === lower),
-      ...remoteBranches.filter((b) => b !== branch && b.toLowerCase() === lower).map((b) => `${remote}/${b}`),
-    ];
-    if (caseVariants.length > 0) {
+    const localVariants = local.filter((b) => b !== branch && b.toLowerCase() === lower);
+    const remoteVariants = remoteBranches.filter((b) => b !== branch && b.toLowerCase() === lower).map((b) => `${remote}/${b}`);
+    // One local branch stored with the wrong case (an earlier fold), nothing ambiguous on the
+    // remote: offer to rename it to exactly what was typed.
+    let renameFrom: string | undefined;
+    if (localVariants.length === 1 && !local.includes(branch) && remoteVariants.length === 0) {
+      const stored = localVariants[0]!;
+      if (!(await prompter({ kind: 'fixBranchCase', repo, branch, stored }))) {
+        throw new Cancelled(`local branch is stored as "${stored}"; renaming it to "${branch}" was declined`);
+      }
+      renameFrom = stored;
+    } else if (localVariants.length + remoteVariants.length > 0) {
       throw new StepFailure(
         'resolve',
-        `branch names differ only in case from "${branch}": ${caseVariants.join(', ')} — rename or delete one first (macOS folds case in refs)`,
+        `branch names differ only in case from "${branch}": ${[...localVariants, ...remoteVariants].join(', ')} — rename or delete one first (macOS folds case in refs)`,
       );
     }
     let checkout: Checkout;
-    if (from === branch) {
+    if (renameFrom) {
+      checkout = from === branch || from === renameFrom ? { mode: 'current' } : { mode: 'local' };
+      emit('resolve', 'ok', `will rename ${renameFrom} → ${branch}`);
+    } else if (from === branch) {
       checkout = { mode: 'current' };
       emit('resolve', 'ok', 'already on this branch');
     } else if (local.includes(branch)) {
@@ -200,6 +322,26 @@ export async function switchBranch(
       emit('worktree', 'skip', 'branch not checked out elsewhere');
     }
 
+    // Case repair: pack (clearing the folding directory) and rename in one go, before anything reads
+    // HEAD — between the two commands a folded HEAD does not resolve.
+    if (renameFrom || refetchAfterRepair) {
+      emit('refs', 'start');
+      const notes: string[] = [];
+      if (caseConflictingDirs(commonDir, branch, remote).length > 0) {
+        await packRefs(repo, commonDir, branch, remote, 'refs');
+        notes.push('packed refs');
+      }
+      if (renameFrom) {
+        await git(repo, ['branch', '-m', renameFrom, branch]);
+        notes.push(`renamed ${renameFrom} → ${branch}`);
+      }
+      if (refetchAfterRepair) {
+        await git(repo, ['fetch', '--prune', remote]);
+        notes.push(`fetched ${remote} again`);
+      }
+      emit('refs', 'ok', notes.join('; '));
+    }
+
     // 5/6. Stash
     emit('stash', 'start');
     const counts = await changeCounts(repo);
@@ -215,6 +357,9 @@ export async function switchBranch(
 
     // 7. Checkout
     emit('checkout', 'start');
+    if ((checkout.mode === 'track' || checkout.mode === 'create') && caseConflictingDirs(commonDir, branch, remote).length > 0) {
+      await packRefs(repo, commonDir, branch, remote, 'checkout');
+    }
     switch (checkout.mode) {
       case 'current':
         emit('checkout', 'skip', 'already on this branch');
@@ -231,6 +376,12 @@ export async function switchBranch(
         await git(repo, ['switch', '--no-track', '-c', branch, checkout.base]);
         emit('checkout', 'ok', `created ${branch} from ${checkout.base}`);
         break;
+    }
+
+    // The branch must now exist under exactly the name typed.
+    const stored = await storedAs(repo, branch);
+    if (stored !== branch) {
+      throw new StepFailure('checkout', `git stored the branch as "${stored ?? '(missing)'}" instead of "${branch}"`);
     }
 
     // 8. Pull

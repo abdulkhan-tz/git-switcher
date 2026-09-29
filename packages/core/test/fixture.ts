@@ -43,9 +43,12 @@ export function makeFixture(): Fixture {
       sh(repo, 'commit', '-q', '-m', message);
     },
     pushNewBranch(branch, file = `${branch.replace(/\W/g, '_')}.txt`) {
-      sh(seed, 'switch', '-q', '-c', branch, 'origin/main');
+      // Detached + explicit refspec, and packed refs on the bare remote, so names keep their exact
+      // case even on a case-insensitive disk — the way GitHub stores them.
+      sh(seed, 'switch', '-q', '--detach', 'origin/main');
       fx.commit(seed, file, branch);
-      sh(seed, 'push', '-q', 'origin', branch);
+      sh(seed, 'push', '-q', 'origin', `HEAD:refs/heads/${branch}`);
+      sh(remote, 'pack-refs', '--all');
       sh(seed, 'switch', '-q', 'main');
     },
   };
