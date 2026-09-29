@@ -7,3 +7,8 @@ export * from './switch/many.js';
 export * from './registry/registry.js';
 export * from './history/history.js';
 export { configDir } from './paths.js';
+export * from './promote/types.js';
+export * from './promote/github.js';
+export * from './promote/store.js';
+export * from './promote/engine.js';
+export * from './promote/worker.js';

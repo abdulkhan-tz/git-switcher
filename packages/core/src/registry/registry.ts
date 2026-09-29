@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { basename, dirname, join, resolve } from 'node:path';
 import { canonical, repoRoot } from '../inspect/inspect.js';
 import { configDir } from '../paths.js';
+import type { Pipeline } from '../promote/types.js';
 
 export interface RepoEntry {
   id: string;
@@ -11,6 +12,8 @@ export interface RepoEntry {
   /** Start point for branches that do not exist yet, e.g. `origin/develop`. */
   base?: string;
   remote?: string;
+  /** Upstream promotion order, e.g. develop → qa → stage → main. */
+  pipeline?: Pipeline;
 }
 
 export interface Group {
@@ -76,6 +79,26 @@ export class Registry {
       if (patch[key] === undefined) continue;
       if (patch[key] === '') delete entry[key];
       else entry[key] = patch[key];
+    }
+    this.save(data);
+    return entry;
+  }
+
+  /** Sets or (with null) clears a repo's promotion pipeline. */
+  setPipeline(ref: string, pipeline: Pipeline | null): RepoEntry {
+    const data = this.load();
+    const entry = this.find(ref, data);
+    if (!entry) throw new RegistryError(`no registered repo "${ref}"`);
+    if (pipeline === null) delete entry.pipeline;
+    else {
+      const stages = pipeline.stages.map((s) => s.trim()).filter(Boolean);
+      if (stages.length < 2) throw new RegistryError('a pipeline needs at least two stages');
+      if (new Set(stages).size !== stages.length) throw new RegistryError('pipeline stages must be unique');
+      const valid = new Set(stages.slice(0, -1).map((s, i) => `${s}→${stages[i + 1]}`));
+      const autoMerge = (pipeline.autoMerge ?? []).map((k) => k.trim()).filter(Boolean);
+      const bad = autoMerge.filter((k) => !valid.has(k));
+      if (bad.length) throw new RegistryError(`auto-merge step(s) not in the pipeline: ${bad.join(', ')}`);
+      entry.pipeline = autoMerge.length ? { stages, autoMerge } : { stages };
     }
     this.save(data);
     return entry;
