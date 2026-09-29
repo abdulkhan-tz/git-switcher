@@ -1,0 +1,227 @@
+import { createServer as createHttpServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import { randomBytes } from 'node:crypto';
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { extname, join, normalize, resolve } from 'node:path';
+import type { AddressInfo } from 'node:net';
+import { History, Registry, RegistryError, inspect, listWorktrees, repoExists, worktreeDetails, type RepoEntry } from '@gsw/core';
+import { Batch } from './runs.js';
+
+export interface ServerOptions {
+  registry?: Registry;
+  history?: History;
+  /** Fixed token (tests); otherwise random per launch. */
+  token?: string;
+  port?: number;
+  /** Built web UI to serve at `/`. */
+  webDir?: string;
+}
+
+export interface RunningServer {
+  server: Server;
+  port: number;
+  token: string;
+  /** Dashboard URL including the token. */
+  url: string;
+  close(): Promise<void>;
+}
+
+class HttpError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+const MIME: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript',
+  '.css': 'text/css',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.ico': 'image/x-icon',
+  '.json': 'application/json',
+};
+
+export async function repoView(entry: RepoEntry) {
+  if (!repoExists(entry)) return { ...entry, missing: true as const, state: null, error: null };
+  try {
+    return { ...entry, missing: false as const, state: await inspect(entry.path), error: null };
+  } catch (e) {
+    return { ...entry, missing: false as const, state: null, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+export async function startServer(opts: ServerOptions = {}): Promise<RunningServer> {
+  const registry = opts.registry ?? new Registry();
+  const history = opts.history ?? new History();
+  const token = opts.token ?? randomBytes(16).toString('hex');
+  const batches = new Map<string, Batch>();
+  const busy = new Set<string>();
+
+  const json = (res: ServerResponse, status: number, body: unknown) => {
+    res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+    res.end(JSON.stringify(body));
+  };
+
+  const readBody = async (req: IncomingMessage): Promise<Record<string, unknown>> => {
+    let raw = '';
+    for await (const chunk of req) {
+      raw += chunk;
+      if (raw.length > 1_000_000) throw new HttpError(413, 'body too large');
+    }
+    if (!raw) return {};
+    try {
+      return JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      throw new HttpError(400, 'invalid JSON');
+    }
+  };
+
+  const repoOr404 = (id: string) => {
+    const entry = registry.find(id);
+    if (!entry) throw new HttpError(404, `no registered repo "${id}"`);
+    return entry;
+  };
+
+  const optStr = (v: unknown) => (typeof v === 'string' ? v : undefined);
+
+  async function api(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
+    const method = req.method ?? 'GET';
+    const parts = url.pathname.split('/').filter(Boolean).slice(1).map(decodeURIComponent); // drop "api"
+    const [resource, id, sub] = parts;
+
+    if (resource === 'repos') {
+      if (!id && method === 'GET') return json(res, 200, await Promise.all(registry.list().map(repoView)));
+      if (!id && method === 'POST') {
+        const b = await readBody(req);
+        if (typeof b.path !== 'string' || !b.path) throw new HttpError(400, 'path is required');
+        const entry = await registry.add(b.path, { name: optStr(b.name) || undefined, base: optStr(b.base) || undefined, remote: optStr(b.remote) || undefined });
+        return json(res, 201, await repoView(entry));
+      }
+      if (id && !sub && method === 'GET') return json(res, 200, await repoView(repoOr404(id)));
+      if (id && !sub && method === 'PATCH') {
+        const b = await readBody(req);
+        repoOr404(id);
+        return json(res, 200, await repoView(registry.update(id, { name: optStr(b.name), base: optStr(b.base), remote: optStr(b.remote) })));
+      }
+      if (id && !sub && method === 'DELETE') return json(res, 200, registry.remove(repoOr404(id).id));
+      if (id && sub === 'worktrees' && method === 'GET') {
+        const entry = repoOr404(id);
+        const wts = await listWorktrees(entry.path);
+        return json(res, 200, await Promise.all(wts.map((w) => worktreeDetails(entry.path, w))));
+      }
+    }
+
+    if (resource === 'groups') {
+      if (!id && method === 'GET') return json(res, 200, registry.groups());
+      if (id && method === 'PUT') {
+        const b = await readBody(req);
+        if (!Array.isArray(b.repoIds)) throw new HttpError(400, 'repoIds must be an array');
+        return json(res, 200, registry.setGroup(id, b.repoIds.map(String)));
+      }
+      if (id && method === 'DELETE') return registry.removeGroup(id), json(res, 200, { ok: true });
+    }
+
+    if (resource === 'history' && method === 'GET') {
+      const repo = url.searchParams.get('repo');
+      const path = repo ? (registry.find(repo)?.path ?? repo) : undefined;
+      return json(res, 200, history.list({ repo: path, limit: Number(url.searchParams.get('limit') ?? 100) }));
+    }
+
+    if (resource === 'switch' && method === 'POST') {
+      const b = await readBody(req);
+      const branch = optStr(b.branch)?.trim();
+      if (!branch) throw new HttpError(400, 'branch is required');
+      if (!Array.isArray(b.repoIds) || b.repoIds.length === 0) throw new HttpError(400, 'repoIds must be a non-empty array');
+      const repos = b.repoIds.map((r) => repoOr404(String(r)));
+      const clash = repos.find((r) => busy.has(r.path));
+      if (clash) throw new HttpError(409, `${clash.name} is already being switched`);
+      const batch = new Batch(branch, repos);
+      batches.set(batch.id, batch);
+      for (const r of repos) busy.add(r.path);
+      void batch
+        .run(history, optStr(b.base)?.trim() || undefined)
+        .finally(() => repos.forEach((r) => busy.delete(r.path)));
+      return json(res, 202, { runId: batch.id });
+    }
+
+    if (resource === 'runs' && id) {
+      const batch = batches.get(id);
+      if (!batch) throw new HttpError(404, 'no such run');
+      if (sub === 'events' && method === 'GET') {
+        res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
+        const unsubscribe = batch.subscribe((e) => res.write(`data: ${JSON.stringify(e)}\n\n`));
+        const ping = setInterval(() => res.write(': ping\n\n'), 15000);
+        req.on('close', () => {
+          clearInterval(ping);
+          unsubscribe();
+        });
+        return;
+      }
+      if (sub === 'answer' && method === 'POST') {
+        const b = await readBody(req);
+        if (typeof b.promptId !== 'string' || typeof b.answer !== 'boolean') throw new HttpError(400, 'promptId and boolean answer required');
+        if (!batch.answer(b.promptId, b.answer)) throw new HttpError(409, 'prompt already answered or unknown');
+        return json(res, 200, { ok: true });
+      }
+      if (sub === 'cancel' && method === 'POST') return batch.cancel(), json(res, 200, { ok: true });
+      if (!sub && method === 'GET') return json(res, 200, { id: batch.id, branch: batch.branch, done: batch.done, events: batch.events });
+    }
+
+    throw new HttpError(404, `no route ${method} ${url.pathname}`);
+  }
+
+  function serveStatic(res: ServerResponse, pathname: string): void {
+    if (!opts.webDir || !existsSync(opts.webDir)) {
+      res.writeHead(200, { 'content-type': 'text/plain' });
+      res.end('git-switcher API is running. Build packages/web to get the dashboard.');
+      return;
+    }
+    const root = resolve(opts.webDir);
+    let file = normalize(join(root, pathname));
+    if (!file.startsWith(root)) {
+      res.writeHead(403).end();
+      return;
+    }
+    if (!existsSync(file) || statSync(file).isDirectory()) file = join(root, 'index.html'); // SPA fallback
+    res.writeHead(200, { 'content-type': MIME[extname(file)] ?? 'application/octet-stream' });
+    res.end(readFileSync(file));
+  }
+
+  const server = createHttpServer(async (req, res) => {
+    try {
+      // Only accept requests addressed to localhost — blocks DNS-rebinding pages from reaching the API.
+      const host = (req.headers.host ?? '').replace(/:\d+$/, '');
+      if (!['127.0.0.1', 'localhost', '[::1]'].includes(host)) throw new HttpError(403, 'forbidden host');
+      const url = new URL(req.url ?? '/', 'http://127.0.0.1');
+      if (!url.pathname.startsWith('/api/')) return serveStatic(res, url.pathname);
+      // EventSource cannot set headers, so the token may also come as ?token=.
+      const presented = req.headers['x-gsw-token'] ?? url.searchParams.get('token');
+      if (presented !== token) throw new HttpError(401, 'missing or wrong token');
+      await api(req, res, url);
+    } catch (e) {
+      const status = e instanceof HttpError ? e.status : e instanceof RegistryError ? 400 : 500;
+      if (!res.headersSent) json(res, status, { error: e instanceof Error ? e.message : String(e) });
+      else res.end();
+    }
+  });
+
+  await new Promise<void>((ok, fail) => {
+    server.once('error', fail);
+    server.listen(opts.port ?? 0, '127.0.0.1', () => ok());
+  });
+  const port = (server.address() as AddressInfo).port;
+  return {
+    server,
+    port,
+    token,
+    url: `http://127.0.0.1:${port}/?token=${token}`,
+    close: () =>
+      new Promise((ok) => {
+        server.closeAllConnections();
+        server.close(() => ok());
+      }),
+  };
+}
