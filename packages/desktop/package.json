@@ -1,0 +1,20 @@
+{
+  "name": "@gsw/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc -p .",
+    "typecheck": "tsc -p . --noEmit",
+    "start": "electron .",
+    "smoke": "electron . --smoke"
+  },
+  "dependencies": {
+    "@gsw/core": "workspace:*",
+    "@gsw/server": "workspace:*"
+  },
+  "devDependencies": {
+    "electron": "^44.4.5"
+  }
+}

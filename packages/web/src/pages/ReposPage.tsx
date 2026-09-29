@@ -24,6 +24,21 @@ export function ReposPage() {
     }
   }, []);
 
+  // #/repos?group=<name> (used by the tray menu) preselects that group once groups have loaded.
+  const [wantedGroup, setWantedGroup] = useState(() => new URLSearchParams(location.hash.split('?')[1] ?? '').get('group'));
+  useEffect(() => {
+    const g = wantedGroup && groups.find((x) => x.name === wantedGroup);
+    if (!g) return;
+    setSelected(new Set(g.repoIds));
+    setWantedGroup(null);
+  }, [groups, wantedGroup]);
+
+  useEffect(() => {
+    const onHash = () => setWantedGroup(new URLSearchParams(location.hash.split('?')[1] ?? '').get('group'));
+    addEventListener('hashchange', onHash);
+    return () => removeEventListener('hashchange', onHash);
+  }, []);
+
   useEffect(() => {
     void refresh();
     const onFocus = () => void refresh();

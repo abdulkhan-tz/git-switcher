@@ -1,7 +1,7 @@
 # git-switcher — Design Spec
 
 - **Date:** 2026-09-29
-- **Status:** Approved design, pending spec review
+- **Status:** Implemented (phases 1–3)
 - **Location:** standalone git repo, branch `main`
 
 ## 1. Purpose
@@ -52,7 +52,7 @@ git-switcher/
 ```
 
 Dependency direction: `cli`, `server`, `desktop` → `core`; `web` → `server` (HTTP only);
-`desktop` → `core` directly (in-process) and loads `web`'s build.
+`cli` and `desktop` start `server` in-process and serve `web`'s build.
 
 ### 3.2 `core` layout — by feature module
 
@@ -113,9 +113,13 @@ stashMessage?, conflictedFiles?, recovery?: string, events[] }`.
 - **Web** — dashboard of repo cards (branch, dirty/untracked, ahead/behind, worktrees);
   multi-select + branch input → switch; live step log per repo; prompts as modal dialogs;
   result table at the end; history view.
-- **Desktop** — Electron tray icon: menu shows registered repos/groups with current branch and
-  "Switch…" entry; main window hosts the web UI. Uses `core` in-process via IPC instead of the
-  HTTP server. Prompts are native dialogs.
+- **Desktop** — Electron tray icon: menu shows registered repos with current branch (● when
+  dirty), a "Switch <group>…" entry per group (opens the dashboard with that group preselected),
+  History, Quit. The main process runs the `server` in-process on a random localhost port and the
+  window loads the same web UI, so prompts use the web dialogs. Closing the window keeps the app
+  in the tray; the window cannot navigate away from the dashboard origin.
+  *(Changed during implementation from "core via IPC + native dialogs": hosting the server
+  in-process reuses the whole web UI and its prompt flow with no second transport.)*
 
 ## 4. Switch algorithm (one run)
 

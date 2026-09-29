@@ -30,6 +30,21 @@ gsw history                      # past runs, incl. any stash a failed run left 
 gsw ui                           # dashboard
 ```
 
+Desktop tray app (macOS menu bar; also Windows/Linux):
+
+```bash
+pnpm desktop
+```
+
+It starts the dashboard server inside the app. Closing the window keeps it in the tray; the tray
+menu shows each repo's branch and a "Switch <group>…" entry per group.
+
+Try the dashboard against throwaway repos without touching your registry:
+
+```bash
+scripts/demo.sh
+```
+
 Registry and history live in `~/.config/git-switcher/` (`$XDG_CONFIG_HOME` and
 `$GIT_SWITCHER_HOME` are honoured).
 

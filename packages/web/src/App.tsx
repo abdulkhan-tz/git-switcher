@@ -3,7 +3,7 @@ import { api } from './api';
 import { PAGES } from './pages';
 
 function currentPage(): string {
-  const id = location.hash.replace(/^#\/?/, '');
+  const id = location.hash.replace(/^#\/?/, '').split('?')[0] ?? '';
   return PAGES.some((p) => p.id === id) ? id : PAGES[0]!.id;
 }
 
