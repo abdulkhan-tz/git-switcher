@@ -203,3 +203,70 @@ Each phase is independently usable and gets its own implementation plan.
 1. `core` + `cli` — the daily command.
 2. `server` + `web` — dashboard and multi-repo switching in the browser.
 3. `desktop` — Electron tray app.
+
+---
+
+## 9. v2 — Rename and promotions (2026-09-29)
+
+### 9.1 Rename
+
+The app is **git helper**. Packages are `@git-helper/*`; the binary is `git-helper` (so
+`git helper <cmd>` works as a git subcommand) with `gsw` kept as an alias. Config lives in
+`~/.config/git-helper/` (`$GIT_HELPER_HOME` overrides); a config left in the old
+`~/.config/git-switcher/` is moved into place on first use. The GitHub repo name is unchanged.
+
+### 9.2 Pipelines
+
+A repo may define an ordered list of upstream branches and which steps may auto-merge:
+
+```json
+"pipeline": { "stages": ["develop", "qa", "stage", "main"], "autoMerge": ["develop→qa"] }
+```
+
+A **step** is one adjacent pair (`develop → qa`). Stage names are branch names on GitHub.
+
+### 9.3 Promotion run
+
+A promotion walks a repo's pipeline from a chosen stage (default: the first) to the last.
+All work is done through GitHub with the user's `gh` login — the local checkout is never
+touched. For each step, in order:
+
+1. **Compare** `to...from`. Zero commits ahead → the step is `skipped`; go to the next step.
+2. **PR** — reuse an open PR with the same base/head, else open one titled
+   `Promote <from> → <to>` whose body lists the commits. The step is `open`; its link is shown.
+3. **Auto-merge** — if the step is listed in `autoMerge`, enable GitHub auto-merge with the
+   **merge-commit** method (squash/rebase would make promotion branches diverge). Failure to
+   enable it is recorded on the step but does not fail the run.
+4. **Wait** — the worker polls the PR. `MERGED` → step `merged`, continue. `CLOSED` without
+   merge → step `closed`, promotion `aborted`. Still open → keep waiting.
+
+Promotion status: `running` → `done` | `aborted` | `failed` | `stopped`. Any `gh` error fails
+the promotion with the message; **Resume** retries from the failed step. **Stop** halts the
+worker for that promotion and never closes a PR; **Resume** continues it.
+
+Starting a promotion for a group starts one independent promotion per repo that has a pipeline.
+
+### 9.4 Worker
+
+- Lives in `git-helper ui`, the tray app, or the foreground `git-helper promote … --watch`.
+- Polls every 60 s (configurable). Only the process holding `worker.lock` (a live PID) ticks;
+  other processes may still start/stop promotions — they write to the shared store and the
+  owner picks them up on its next tick. Reusing an open PR prevents duplicates from races.
+- State is persisted in `promotions.json`, so a restart resumes where it left off.
+- Emits `pr-opened` (the tray shows a desktop notification that opens the PR) and `updated`.
+
+### 9.5 GitHub interface
+
+`GitHubClient` — `repoSlug`, `compare`, `findOpenPr`, `createPr`, `getPr`, `enableAutoMerge` —
+implemented over the `gh` CLI (`execFile`, no shell). The engine only sees the interface, so it
+is tested against an in-memory fake; `gh` calls are smoke-tested read-only.
+
+### 9.6 Surfaces
+
+- CLI: `git-helper pipeline set <repo> <stage…> [--auto-merge a:b,b:c]`, `pipeline show|clear`,
+  `git-helper promote <repo…>|--group <g> [--from <stage>] [--watch]`,
+  `git-helper promotions [stop|resume <id>]`.
+- API: `PUT/DELETE /api/repos/:id/pipeline`, `GET/POST /api/promotions`,
+  `POST /api/promotions/:id/stop|resume`.
+- Web: a **Promotions** tab (start, live step chain with PR links, stop/resume) and a pipeline
+  editor on each repo card.
