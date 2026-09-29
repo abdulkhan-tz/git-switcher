@@ -1,0 +1,10 @@
+{
+  "name": "@gsw/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": { "gsw": "dist/bin.js" },
+  "main": "dist/main.js",
+  "scripts": { "build": "tsc -p .", "typecheck": "tsc -p . --noEmit" },
+  "dependencies": { "@gsw/core": "workspace:*" }
+}
