@@ -202,3 +202,59 @@ describe('worker lock', () => {
     w.stop();
   });
 });
+
+describe('interval, countdown and deletion', () => {
+  it('validates the 1–60 s interval and persists it', async () => {
+    const { SettingsStore, SettingsError } = await import('../src/index.js');
+    const dir = mkdtempSync(join(tmpdir(), 'git-helper-set-'));
+    const settings = new SettingsStore(join(dir, 'settings.json'));
+    expect(settings.load().promotionIntervalSec).toBe(60);
+    expect(settings.update({ promotionIntervalSec: 5 }).promotionIntervalSec).toBe(5);
+    expect(new SettingsStore(join(dir, 'settings.json')).load().promotionIntervalSec).toBe(5);
+    for (const bad of [0, 61, 2.5, NaN]) expect(() => settings.update({ promotionIntervalSec: bad })).toThrow(SettingsError);
+  });
+
+  it('polls on its own at the configured interval and publishes the next check time', async () => {
+    const { SettingsStore } = await import('../src/index.js');
+    const { registry, github, store, dir } = await setup(base);
+    const settings = new SettingsStore(join(dir, 'settings.json'));
+    settings.update({ promotionIntervalSec: 1 });
+    const w = new PromotionWorker({ store, registry, github, settings, lockFile: join(dir, 'lock2') });
+    const p = await w.startPromotion('api');
+    expect(w.start()).toBe(true);
+    await new Promise((r) => setTimeout(r, 50));
+    const s = w.status();
+    expect(s).toMatchObject({ polling: true, intervalMs: 1000 });
+    const inMs = new Date(s.nextCheckAt!).getTime() - Date.now();
+    expect(inMs).toBeGreaterThan(500);
+    expect(inMs).toBeLessThanOrEqual(1000);
+    // Another process sees the same schedule through the lock file.
+    const observer = new PromotionWorker({ store, registry, github, settings, lockFile: join(dir, 'lock2') });
+    expect(observer.status()).toMatchObject({ polling: false, holder: process.pid, nextCheckAt: s.nextCheckAt });
+    github.merge(1);
+    await new Promise((r) => setTimeout(r, 1300)); // the timer, not a manual tick, moves it on
+    expect(store.get(p.id)!.steps.map((x) => x.status)).toEqual(['merged', 'open', 'pending']);
+    // Changing the interval restarts the countdown at once.
+    w.setIntervalSec(30);
+    const later = new Date(w.status().nextCheckAt!).getTime() - Date.now();
+    expect(later).toBeGreaterThan(29_000);
+    w.stop();
+    expect(observer.status().holder).toBeNull();
+  });
+
+  it('deletes finished promotions only', async () => {
+    const { worker, github } = await setup(base);
+    const running = await worker.startPromotion('api');
+    expect(() => worker.deletePromotion(running.id)).toThrow(/stop it before deleting/);
+    worker.stopPromotion(running.id);
+    expect(worker.deletePromotion(running.id).id).toBe(running.id);
+    expect(worker.store.list()).toHaveLength(0);
+    github.branches.set('qa', [...github.branches.get('develop')!]);
+    github.branches.set('stage', [...github.branches.get('develop')!]);
+    github.branches.set('main', [...github.branches.get('develop')!]);
+    await worker.startPromotion('api'); // nothing to promote → done
+    const again = await worker.startPromotion('api');
+    expect(again.status).toBe('done');
+    expect(worker.clearFinished()).toBe(2);
+  });
+});

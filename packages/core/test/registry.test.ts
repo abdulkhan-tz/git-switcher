@@ -56,3 +56,21 @@ describe('inspect', () => {
     expect(s.worktrees[0]!.isMain).toBe(true);
   });
 });
+
+describe('History deletion', () => {
+  it('removes one entry by run id prefix, or clears all / one repo', async () => {
+    const a = makeFixture();
+    const b = makeFixture();
+    const history = new History(tempFile('history.jsonl'));
+    const r1 = history.append(await switchBranch(a.work, 'feature', {}, scripted()));
+    history.append(await switchBranch(a.work, 'main', {}, scripted()));
+    history.append(await switchBranch(b.work, 'feature', {}, scripted()));
+    expect(history.remove(r1.runId.slice(0, 5))).toBe(true);
+    expect(history.remove('zzzz')).toBe(false);
+    expect(history.list().map((e) => e.to)).toEqual(['feature', 'main']);
+    expect(history.clear({ repo: b.work })).toBe(1);
+    expect(history.list().map((e) => e.repo)).toEqual([a.work]);
+    expect(history.clear()).toBe(1);
+    expect(history.list()).toEqual([]);
+  });
+});

@@ -7,9 +7,29 @@ export function HistoryPage() {
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<string | null>(null);
 
+  const load = () => api.history().then(setEntries, (e: Error) => setError(e.message));
   useEffect(() => {
-    api.history().then(setEntries, (e: Error) => setError(e.message));
+    void load();
   }, []);
+
+  const remove = async (runId: string) => {
+    try {
+      await api.deleteHistoryEntry(runId);
+      await load();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  const clearAll = async () => {
+    if (!confirm('Delete the whole switch history? This cannot be undone. (Stashes in your repos are not touched.)')) return;
+    try {
+      await api.clearHistory();
+      await load();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
 
   if (error) return <div className="notice error">{error}</div>;
   if (!entries) return <div className="muted">Loading…</div>;
@@ -17,7 +37,11 @@ export function HistoryPage() {
 
   return (
     <div className="page">
-      <h2>History</h2>
+      <div className="section-head">
+        <h2>History</h2>
+        <span className="spacer" />
+        <button className="ghost small" onClick={clearAll}>Clear all</button>
+      </div>
       <table className="history">
         <thead>
           <tr>
@@ -25,6 +49,7 @@ export function HistoryPage() {
             <th>Repo</th>
             <th>Switch</th>
             <th>Outcome</th>
+            <th aria-label="Actions" />
           </tr>
         </thead>
         <tbody>
@@ -43,10 +68,23 @@ export function HistoryPage() {
                   </span>
                   {e.stashRef && <span className="badge warn">stash left: {e.stashRef}</span>}
                 </td>
+                <td className="row-actions">
+                  <button
+                    className="link danger small"
+                    onClick={(ev) => {
+                      ev.stopPropagation();
+                      void remove(e.runId);
+                    }}
+                    aria-label={`Delete history entry ${e.runId}`}
+                    title="Delete this entry"
+                  >
+                    ×
+                  </button>
+                </td>
               </tr>
               {open === e.runId && (
                 <tr className="detail">
-                  <td colSpan={4}>
+                  <td colSpan={5}>
                     <div className="muted small">{e.repo}</div>
                     <ol className="steps">
                       {e.steps.map((s, i) => (

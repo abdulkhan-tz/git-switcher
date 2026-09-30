@@ -69,3 +69,18 @@ describe('pipeline / promote / promotions', () => {
     expect(r.text).toContain('has no pipeline');
   });
 });
+
+describe('interval and deletion commands', () => {
+  it('promotions interval validates 1–60; rm/clear delete finished promotions', async () => {
+    const { run, worker } = await setup();
+    expect((await run(['promotions', 'interval', '61'])).code).toBe(1);
+    expect((await run(['promotions', 'interval'])).text).toMatch(/every \d+s/);
+    await run(['pipeline', 'set', 'api', 'develop', 'qa']);
+    await run(['promote', 'api']);
+    const id = worker.store.list()[0]!.id;
+    expect((await run(['promotions', 'rm', id])).text).toContain('stop it before deleting');
+    await run(['promotions', 'stop', id]);
+    expect((await run(['promotions', 'rm', id.slice(0, 4)])).text).toContain('Deleted promotion');
+    expect((await run(['promotions', 'clear'])).text).toContain('Deleted 0 finished');
+  });
+});

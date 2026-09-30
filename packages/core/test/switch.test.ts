@@ -215,6 +215,14 @@ describe('switchBranch', () => {
     expect(r.failedStep).toBe('preflight');
   });
 
+  it('a clean empty repo (no commits yet) can "switch" to the branch it is on', async () => {
+    const fx = makeFixture();
+    const empty = join(fx.dir, 'empty');
+    sh(fx.dir, 'init', '-q', '-b', 'main', empty);
+    const r = await switchBranch(empty, 'main', {}, scripted());
+    expect(r.outcome, r.error).toBe('switched');
+  });
+
   it('works in a repo with no remotes', async () => {
     const fx = makeFixture();
     sh(fx.work, 'remote', 'remove', 'origin');

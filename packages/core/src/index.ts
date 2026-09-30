@@ -12,3 +12,4 @@ export * from './promote/github.js';
 export * from './promote/store.js';
 export * from './promote/engine.js';
 export * from './promote/worker.js';
+export * from './settings.js';

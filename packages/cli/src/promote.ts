@@ -1,4 +1,4 @@
-import { PromotionError, PromotionWorker, RegistryError, type Promotion, type PromotionStep, type Registry } from '@git-helper/core';
+import { PromotionError, PromotionWorker, RegistryError, validInterval, type Promotion, type PromotionStep, type Registry } from '@git-helper/core';
 import { str, type ParsedArgs } from './args.js';
 import type { Out } from './io.js';
 
@@ -73,7 +73,7 @@ export function pipelineCommand(rest: string[], args: ParsedArgs, out: Out, regi
 
 export async function promoteCommand(rest: string[], args: ParsedArgs, out: Out, deps: PromoteDeps): Promise<number> {
   const poll = str(args.flags, 'poll');
-  const worker = deps.worker ?? new PromotionWorker({ registry: deps.registry, intervalMs: poll ? Number(poll) * 1000 : undefined });
+  const worker = deps.worker ?? new PromotionWorker({ registry: deps.registry, intervalMs: poll ? validInterval(poll) * 1000 : undefined });
   const group = str(args.flags, 'group');
   const refs = group ? deps.registry.groupRepos(group).filter((r) => r.pipeline).map((r) => r.name) : rest;
   if (refs.length === 0) throw new UsageError(group ? `no repo in group "${group}" has a pipeline` : 'git-helper promote <repo…> | --group <name> [--from <stage>] [--watch]');
@@ -131,21 +131,39 @@ async function watch(ids: string[], out: Out, worker: PromotionWorker, deps: Pro
 export async function promotionsCommand(rest: string[], out: Out, deps: PromoteDeps): Promise<number> {
   const worker = deps.worker ?? new PromotionWorker({ registry: deps.registry });
   const [sub, id] = rest;
+  if (sub === 'interval') {
+    if (id !== undefined) worker.setIntervalSec(validInterval(id));
+    out.line(`Promotions are checked every ${Math.round(worker.intervalMs / 1000)}s${id !== undefined ? ' (saved; a running worker switches over immediately)' : ''}.`);
+    return 0;
+  }
+  if (sub === 'rm') {
+    if (!id) throw new UsageError('git-helper promotions rm <id>');
+    const p = worker.deletePromotion(id);
+    out.line(`Deleted promotion ${p.id} (${p.repoName}); its PRs on GitHub are untouched.`);
+    return 0;
+  }
+  if (sub === 'clear') {
+    out.line(`Deleted ${worker.clearFinished()} finished promotion(s); running ones are kept.`);
+    return 0;
+  }
   if (sub === 'stop' || sub === 'resume') {
     if (!id) throw new UsageError(`git-helper promotions ${sub} <id>`);
     const p = sub === 'stop' ? worker.stopPromotion(id) : await worker.resumePromotion(id);
     renderPromotion(out, p);
     return 0;
   }
-  if (sub !== undefined && sub !== 'ls') throw new UsageError('git-helper promotions [ls|stop <id>|resume <id>]');
+  if (sub !== undefined && sub !== 'ls') throw new UsageError('git-helper promotions [ls | stop <id> | resume <id> | rm <id> | clear | interval [1-60]]');
   const list = worker.store.list().slice(0, 20);
   if (list.length === 0) out.line(out.dim('No promotions yet. Start one with: git-helper promote <repo>'));
   list.forEach((p, i) => {
     if (i) out.line();
     renderPromotion(out, p);
   });
-  const holder = worker.lockHolder();
+  const st = worker.status();
   out.line();
-  out.line(out.dim(holder ? `Worker running (pid ${holder}).` : 'No worker running — start `git-helper ui`, the tray app, or `git-helper promote … --watch`.'));
+  if (st.holder) {
+    const secs = st.nextCheckAt ? Math.max(0, Math.round((new Date(st.nextCheckAt).getTime() - Date.now()) / 1000)) : null;
+    out.line(out.dim(`Worker running (pid ${st.holder}), checking every ${Math.round(st.intervalMs / 1000)}s${secs !== null ? ` — next check in ${secs}s` : ''}.`));
+  } else out.line(out.dim('No worker running — start `git-helper ui`, the tray app, or `git-helper promote … --watch`.'));
   return 0;
 }

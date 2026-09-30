@@ -4,7 +4,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { extname, join, normalize, resolve } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { fileURLToPath } from 'node:url';
-import { History, PromotionError, PromotionWorker, Registry, RegistryError, inspect, listWorktrees, repoExists, worktreeDetails, type RepoEntry } from '@git-helper/core';
+import { History, PromotionError, PromotionWorker, Registry, RegistryError, SettingsError, inspect, listWorktrees, repoExists, worktreeDetails, type RepoEntry } from '@git-helper/core';
 import { Batch } from './runs.js';
 
 export interface ServerOptions {
@@ -153,8 +153,9 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
 
     if (resource === 'promotions') {
       if (!id && method === 'GET') {
-        return json(res, 200, { promotions: worker.store.list(), worker: { polling: worker.isOwner, holder: worker.lockHolder(), intervalMs: worker.intervalMs } });
+        return json(res, 200, { promotions: worker.store.list(), worker: worker.status() });
       }
+      if (!id && method === 'DELETE') return json(res, 200, { removed: worker.clearFinished() });
       if (!id && method === 'POST') {
         const b = await readBody(req);
         if (!Array.isArray(b.repoIds) || b.repoIds.length === 0) throw new HttpError(400, 'repoIds must be a non-empty array');
@@ -171,12 +172,32 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
         }
         return json(res, started.length ? 201 : 400, { started, errors });
       }
-      if (id === 'tick' && method === 'POST') return await worker.tick(), json(res, 200, { ok: true });
+      if (id === 'tick' && method === 'POST') return await worker.checkNow(), json(res, 200, worker.status());
+      if (id && !sub && method === 'DELETE') return json(res, 200, worker.deletePromotion(id));
       if (id && sub === 'stop' && method === 'POST') return json(res, 200, worker.stopPromotion(id));
       if (id && sub === 'resume' && method === 'POST') return json(res, 200, await worker.resumePromotion(id));
     }
 
+    if (resource === 'settings') {
+      if (method === 'GET') return json(res, 200, worker.settings.load());
+      if (method === 'PUT') {
+        const b = await readBody(req);
+        worker.setIntervalSec(b.promotionIntervalSec as number);
+        return json(res, 200, { settings: worker.settings.load(), worker: worker.status() });
+      }
+    }
+
     if (resource === 'version' && method === 'GET') return json(res, 200, { stale: isStale() });
+
+    if (resource === 'history' && method === 'DELETE') {
+      if (id) {
+        if (!history.remove(id)) throw new HttpError(404, `no single history entry matches "${id}"`);
+        return json(res, 200, { removed: 1 });
+      }
+      const repo = url.searchParams.get('repo');
+      const path = repo ? (registry.find(repo)?.path ?? repo) : undefined;
+      return json(res, 200, { removed: history.clear({ repo: path }) });
+    }
 
     if (resource === 'history' && method === 'GET') {
       const repo = url.searchParams.get('repo');
@@ -256,7 +277,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
       if (presented !== token) throw new HttpError(401, 'missing or wrong token');
       await api(req, res, url);
     } catch (e) {
-      const status = e instanceof HttpError ? e.status : e instanceof RegistryError || e instanceof PromotionError ? 400 : 500;
+      const status = e instanceof HttpError ? e.status : e instanceof RegistryError || e instanceof PromotionError || e instanceof SettingsError ? 400 : 500;
       if (!res.headersSent) json(res, status, { error: e instanceof Error ? e.message : String(e) });
       else res.end();
     }

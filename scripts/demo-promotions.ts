@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { basename } from 'node:path';
-import { History, PromotionStore, PromotionWorker, Registry, type GitHubClient } from '../packages/core/src/index.js';
+import { History, PromotionStore, PromotionWorker, Registry, SettingsStore, type GitHubClient } from '../packages/core/src/index.js';
 import { startServer } from '../packages/server/src/index.js';
 import { FakeGitHub } from '../packages/core/test/fakeGithub.js';
 
@@ -36,7 +36,9 @@ const github: GitHubClient = {
   getPr: (slug, n) => fake(slug).getPr(slug, n),
   enableAutoMerge: (slug, n) => fake(slug).enableAutoMerge(slug, n),
 };
-const worker = new PromotionWorker({ registry, github, store: new PromotionStore(join(dir, 'promotions.json')), lockFile: join(dir, 'worker.lock'), intervalMs: 5_000 });
+const settings = new SettingsStore(join(dir, 'settings.json'));
+settings.update({ promotionIntervalSec: 10 });
+const worker = new PromotionWorker({ registry, github, store: new PromotionStore(join(dir, 'promotions.json')), lockFile: join(dir, 'worker.lock'), settings });
 const running = await startServer({
   registry,
   history: new History(join(dir, 'history.jsonl')),

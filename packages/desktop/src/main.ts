@@ -2,6 +2,10 @@ import { app, BrowserWindow, Menu, Notification, Tray, nativeImage, shell, type 
 import { fileURLToPath } from 'node:url';
 import { Registry, inspect, repoExists } from '@git-helper/core';
 import { startServer, type RunningServer } from '@git-helper/server';
+import { disableLoginItem, enableLoginItem, isLoginItem, loginShellPath } from './login.js';
+
+// Started from login/Finder/`open`, macOS gives a PATH without Homebrew (no `gh`); use the shell's.
+process.env.PATH = loginShellPath();
 
 // packages/desktop/dist → packages/web/dist and packages/desktop/assets
 const WEB_DIR = fileURLToPath(new URL('../../web/dist', import.meta.url));
@@ -107,6 +111,20 @@ async function refreshMenu(): Promise<void> {
     { label: 'History', click: () => showWindow(dashboardUrl('history')) },
     { label: 'Refresh', click: () => void refreshMenu() },
     { type: 'separator' },
+    ...(process.platform === 'darwin'
+      ? [
+          {
+            label: 'Start at login',
+            type: 'checkbox',
+            checked: isLoginItem(),
+            click: (item: Electron.MenuItem) => {
+              if (item.checked) enableLoginItem({ electron: process.execPath, appPath: app.getAppPath(), path: process.env.PATH ?? '' });
+              else disableLoginItem();
+              void refreshMenu();
+            },
+          } as MenuItemConstructorOptions,
+        ]
+      : []),
     { label: 'Quit git helper', role: 'quit' },
   ];
   tray.setContextMenu(Menu.buildFromTemplate(template));
@@ -128,6 +146,18 @@ function promotionsItem(): MenuItemConstructorOptions {
       })),
     ],
   };
+}
+
+/** While promotions are running, show the countdown to the next GitHub check next to the icon. */
+function showCountdown(): void {
+  setInterval(() => {
+    if (!tray) return;
+    const running = server.worker.store.list().some((p) => p.status === 'running');
+    const st = server.worker.status();
+    if (!running || !st.nextCheckAt) return tray.setTitle('');
+    const left = Math.max(0, Math.ceil((new Date(st.nextCheckAt).getTime() - Date.now()) / 1000));
+    tray.setTitle(st.checking || left === 0 ? ' …' : ` ${left}s`, { fontType: 'monospacedDigit' });
+  }, 1000);
 }
 
 /** A desktop notification per PR that is waiting for the user; clicking it opens the PR. */
@@ -181,6 +211,7 @@ if (!app.requestSingleInstanceLock()) {
     tray = new Tray(icon);
     tray.setToolTip('git helper');
     watchPromotions();
+    showCountdown();
     await refreshMenu();
     setInterval(() => void refreshMenu(), MENU_REFRESH_MS);
     app.on('activate', () => showWindow());

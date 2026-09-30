@@ -124,3 +124,19 @@ describe('git-helper', () => {
     expect(sh(fx.work, 'for-each-ref', '--format=%(refname)', 'refs/heads/ticket/new')).toBe('refs/heads/ticket/new');
   });
 });
+
+describe('history deletion', () => {
+  it('history rm <id> and history clear [--repo]', async () => {
+    const fx = makeFixture();
+    const first = await run(['feature'], fx.work);
+    const deps = { registry: first.registry, history: first.history };
+    await run(['main'], fx.work, '', deps);
+    const id = first.history.list()[1]!.runId;
+    expect((await run(['history'], fx.work, '', deps)).text).toContain(id);
+    expect((await run(['history', 'rm', id], fx.work, '', deps)).code).toBe(0);
+    expect(first.history.list()).toHaveLength(1);
+    expect((await run(['history', 'rm', 'nope'], fx.work, '', deps)).code).toBe(1);
+    expect((await run(['history', 'clear'], fx.work, '', deps)).text).toContain('Deleted 1 history');
+    expect(first.history.list()).toEqual([]);
+  });
+});

@@ -435,8 +435,10 @@ export async function switchBranch(
         break;
     }
 
-    // The branch must now exist under exactly the name typed.
-    const stored = await storedAs(repo, branch);
+    // The branch must now exist under exactly the name typed — unless it is still unborn (a repo with
+    // no commits yet), where HEAD names it but no ref exists to check.
+    const unborn = checkout.mode === 'current' && (await runGit(repo, ['rev-parse', '--verify', '--quiet', 'HEAD'])).code !== 0;
+    const stored = unborn ? branch : await storedAs(repo, branch);
     if (stored !== branch) {
       throw new StepFailure('checkout', `git stored the branch as "${stored ?? '(missing)'}" instead of "${branch}"`);
     }

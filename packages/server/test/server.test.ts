@@ -178,3 +178,41 @@ describe('version', () => {
     expect((await call('GET', '/api/version')).body).toEqual({ stale: false });
   });
 });
+
+describe('settings and deletion API', () => {
+  it('sets the interval (1–60 s), deletes history and finished promotions', async () => {
+    const { PromotionStore, PromotionWorker, SettingsStore } = await import('@git-helper/core');
+    const { FakeGitHub } = await import('../../core/test/fakeGithub.js');
+    const dir = mkdtempSync(join(tmpdir(), 'git-helper-srvs-'));
+    const registry = new Registry(join(dir, 'repos.json'));
+    const history = new History(join(dir, 'h.jsonl'));
+    const github = new FakeGitHub({ main: ['a'], qa: ['a'], develop: ['a', 'b'] });
+    const worker = new PromotionWorker({ registry, github, store: new PromotionStore(join(dir, 'p.json')), settings: new SettingsStore(join(dir, 's.json')), lockFile: join(dir, 'lock') });
+    running = await startServer({ registry, history, token: 't', worker });
+    const call = async (method: string, path: string, body?: unknown) => {
+      const res = await fetch(`http://127.0.0.1:${running!.port}${path}`, { method, headers: { 'x-git-helper-token': 't', 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+      return { status: res.status, body: (await res.json()) as any };
+    };
+    expect((await call('PUT', '/api/settings', { promotionIntervalSec: 0 })).status).toBe(400);
+    const set = await call('PUT', '/api/settings', { promotionIntervalSec: 7 });
+    expect(set.body.settings.promotionIntervalSec).toBe(7);
+    expect(set.body.worker).toMatchObject({ polling: true, intervalMs: 7000 });
+    expect(new Date(set.body.worker.nextCheckAt).getTime() - Date.now()).toBeGreaterThan(6000);
+
+    const fx = makeFixture();
+    const repo = (await call('POST', '/api/repos', { path: fx.work, name: 'api' })).body;
+    await call('PUT', `/api/repos/${repo.id}/pipeline`, { stages: ['develop', 'qa', 'main'] });
+    const p = (await call('POST', '/api/promotions', { repoIds: [repo.id] })).body.started[0];
+    expect((await call('DELETE', `/api/promotions/${p.id}`)).status).toBe(400);
+    await call('POST', `/api/promotions/${p.id}/stop`);
+    expect((await call('DELETE', '/api/promotions')).body.removed).toBe(1);
+
+    const { switchBranch } = await import('@git-helper/core');
+    const e1 = history.append(await switchBranch(fx.work, 'feature', {}, async () => false));
+    history.append(await switchBranch(fx.work, 'main', {}, async () => false));
+    expect((await call('DELETE', `/api/history/${e1.runId}`)).body.removed).toBe(1);
+    expect((await call('DELETE', '/api/history/nope')).status).toBe(404);
+    expect((await call('DELETE', '/api/history?repo=api')).body.removed).toBe(1);
+    expect((await call('GET', '/api/history')).body).toEqual([]);
+  });
+});

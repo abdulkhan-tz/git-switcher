@@ -1,4 +1,4 @@
-import type { Group, HistoryEntry, Promotion, RepoEntry, RepoState, WorktreeDetails } from '@git-helper/core';
+import type { Group, HistoryEntry, Promotion, RepoEntry, RepoState, Settings, WorkerStatus, WorktreeDetails } from '@git-helper/core';
 import type { RunEvent } from '@git-helper/server';
 
 export type { RunEvent };
@@ -7,7 +7,7 @@ export type { Promotion };
 
 export interface PromotionsView {
   promotions: Promotion[];
-  worker: { polling: boolean; holder: number | null; intervalMs: number };
+  worker: WorkerStatus;
 }
 
 export type RepoView = RepoEntry & { missing: boolean; state: RepoState | null; error: string | null };
@@ -69,7 +69,12 @@ export const api = {
     call<{ started: Promotion[]; errors: { repo: string; error: string }[] }>('POST', '/promotions', { repoIds, from }),
   stopPromotion: (id: string) => call<Promotion>('POST', `/promotions/${enc(id)}/stop`),
   resumePromotion: (id: string) => call<Promotion>('POST', `/promotions/${enc(id)}/resume`),
-  checkPromotions: () => call<{ ok: true }>('POST', '/promotions/tick'),
+  checkPromotions: () => call<WorkerStatus>('POST', '/promotions/tick'),
+  deletePromotion: (id: string) => call<Promotion>('DELETE', `/promotions/${enc(id)}`),
+  clearFinishedPromotions: () => call<{ removed: number }>('DELETE', '/promotions'),
+  setIntervalSec: (sec: number) => call<{ settings: Settings; worker: WorkerStatus }>('PUT', '/settings', { promotionIntervalSec: sec }),
+  deleteHistoryEntry: (runId: string) => call<{ removed: number }>('DELETE', `/history/${enc(runId)}`),
+  clearHistory: () => call<{ removed: number }>('DELETE', '/history'),
   groups: () => call<Group[]>('GET', '/groups'),
   setGroup: (name: string, repoIds: string[]) => call<Group>('PUT', `/groups/${enc(name)}`, { repoIds }),
   removeGroup: (name: string) => call<{ ok: true }>('DELETE', `/groups/${enc(name)}`),

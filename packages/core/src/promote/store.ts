@@ -38,6 +38,15 @@ export class PromotionStore {
     return this.load().promotions.find((p) => p.id === id || p.id.startsWith(id));
   }
 
+  remove(id: string): boolean {
+    const data = this.load();
+    const before = data.promotions.length;
+    data.promotions = data.promotions.filter((p) => p.id !== id);
+    if (data.promotions.length === before) return false;
+    this.save(data);
+    return true;
+  }
+
   put(promotion: Promotion): void {
     const data = this.load();
     const i = data.promotions.findIndex((p) => p.id === promotion.id);

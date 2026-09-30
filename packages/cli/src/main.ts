@@ -1,4 +1,4 @@
-import { History, PromotionError, Registry, RegistryError, inspect, repoExists, repoRoot, switchBranch, type RunResult, type SwitchOptions } from '@git-helper/core';
+import { History, PromotionError, Registry, RegistryError, SettingsError, inspect, repoExists, repoRoot, switchBranch, type RunResult, type SwitchOptions } from '@git-helper/core';
 import { parseArgs, str, type ParsedArgs } from './args.js';
 import { lineReader, makeOut, type Io, type Out } from './io.js';
 import { pipelineCommand, promoteCommand, promotionsCommand, PromoteUsageError, type PromoteDeps } from './promote.js';
@@ -20,7 +20,8 @@ Promote  (one PR per step; the next opens when you merge the previous one)
   git-helper pipeline set <repo> <stage> <stage>… [--auto-merge develop:qa,qa:stage]
   git-helper pipeline show [repo] | clear <repo>
   git-helper promote <repo…> | --group <name> [--from <stage>] [--watch] [--poll <sec>]
-  git-helper promotions [stop <id> | resume <id>]
+  git-helper promotions [stop <id> | resume <id> | rm <id> | clear]
+  git-helper promotions interval [1-60]      show or set how often GitHub is checked (seconds)
 
 Repos
   git-helper add [path] [--name n] [--base origin/develop] [--remote origin]
@@ -30,6 +31,7 @@ Repos
   git-helper group add <name> <repo...>      create or replace a group
   git-helper group rm <name> | group ls
   git-helper history [--repo <repo>] [--limit n]
+  git-helper history rm <run-id> | clear [--repo <repo>]
   git-helper ui [--port n] [--no-open]       open the dashboard (also runs the promotion worker)
 
 Exit codes: 0 success, 1 any failure, 2 any cancelled switch.`;
@@ -81,6 +83,16 @@ export async function main(argv: string[], io: Io, deps: Deps = {}): Promise<num
       case 'history': {
         const repoRef = str(args.flags, 'repo');
         const repo = repoRef ? (registry.find(repoRef)?.path ?? repoRef) : undefined;
+        if (rest[0] === 'rm') {
+          if (!rest[1]) throw new UsageError('git-helper history rm <run-id>');
+          if (!history.remove(rest[1])) throw new UsageError(`no single history entry matches "${rest[1]}"`);
+          out.line(`Deleted history entry ${rest[1]}`);
+          return 0;
+        }
+        if (rest[0] === 'clear') {
+          out.line(`Deleted ${history.clear({ repo })} history entr${repo ? `ies for ${repoRef}` : 'ies'}`);
+          return 0;
+        }
         renderHistory(out, history.list({ repo, limit: Number(str(args.flags, 'limit') ?? 20) }));
         return 0;
       }
@@ -100,7 +112,7 @@ export async function main(argv: string[], io: Io, deps: Deps = {}): Promise<num
     }
   } catch (e) {
     if (e instanceof UsageError || e instanceof PromoteUsageError) out.line(out.red(`usage: ${e.message}`));
-    else if (e instanceof RegistryError || e instanceof PromotionError) out.line(out.red(e.message));
+    else if (e instanceof RegistryError || e instanceof PromotionError || e instanceof SettingsError) out.line(out.red(e.message));
     else out.line(out.red(e instanceof Error ? e.message : String(e)));
     return 1;
   }

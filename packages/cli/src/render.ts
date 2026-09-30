@@ -37,7 +37,7 @@ export function renderHistory(out: Out, entries: HistoryEntry[]): void {
   for (const e of entries) {
     const outcome =
       e.outcome === 'switched' ? out.green(e.outcome) : e.outcome === 'cancelled' ? out.yellow(e.outcome) : out.red(`failed@${e.failedStep}`);
-    out.line(`${out.dim(e.startedAt)}  ${outcome.padEnd(10)}  ${e.from ?? '(detached)'} → ${e.to}  ${out.dim(e.repo)}`);
+    out.line(`${out.dim(e.runId)}  ${out.dim(e.startedAt)}  ${outcome.padEnd(10)}  ${e.from ?? '(detached)'} → ${e.to}  ${out.dim(e.repo)}`);
     if (e.stashRef) out.line(out.yellow(`    stash left: ${e.stashRef} "${e.stashMessage}"`));
   }
 }

@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import type { PromotionStep } from '@git-helper/core';
 import { api, type Promotion, type PromotionsView, type RepoView } from '../api';
+import { CheckTimer } from '../components/CheckTimer';
 
 const REFRESH_MS = 5000;
+/** Re-read shortly after a scheduled check so its results show up without waiting a full refresh. */
+const AFTER_CHECK_MS = 800;
 const ICON: Record<PromotionStep['status'], string> = { merged: '✓', skipped: '–', open: '●', pending: '·', closed: '✗', failed: '✗' };
 const BADGE: Record<Promotion['status'], string> = { running: 'info', done: 'ok', stopped: 'warn', aborted: 'danger', failed: 'danger' };
 
@@ -52,6 +55,14 @@ export function PromotionsPage() {
     const t = setInterval(() => void refresh(), REFRESH_MS);
     return () => clearInterval(t);
   }, [refresh]);
+
+  const nextCheckAt = data?.worker.nextCheckAt;
+  useEffect(() => {
+    if (!nextCheckAt) return;
+    const wait = new Date(nextCheckAt).getTime() - Date.now() + AFTER_CHECK_MS;
+    const t = setTimeout(() => void refresh(), Math.max(AFTER_CHECK_MS, wait));
+    return () => clearTimeout(t);
+  }, [nextCheckAt, refresh]);
 
   const withPipeline = repos.filter((r) => r.pipeline);
   const running = new Set((data?.promotions ?? []).filter((p) => p.status === 'running').map((p) => p.repoId));
@@ -114,14 +125,7 @@ export function PromotionsPage() {
             Promote {selected.size || ''}
           </button>
         </form>
-        <div className="small muted worker-line">
-          {data?.worker.polling
-            ? `Worker running here — checks GitHub every ${Math.round(data.worker.intervalMs / 1000)}s.`
-            : data?.worker.holder
-              ? `Worker running in another git-helper process (pid ${data.worker.holder}).`
-              : 'No worker is polling; promotions advance when one runs.'}{' '}
-          <button className="link small" onClick={() => void act(() => api.checkPromotions())} disabled={busy}>Check now</button>
-        </div>
+        {data && <CheckTimer worker={data.worker} onChanged={() => void refresh()} onError={setError} />}
       </section>
 
       {error && (
@@ -132,6 +136,12 @@ export function PromotionsPage() {
 
       <div className="section-head">
         <h2>Promotions</h2>
+        <span className="spacer" />
+        {(data?.promotions ?? []).some((p) => p.status !== 'running') && (
+          <button className="ghost small" disabled={busy} onClick={() => confirm('Delete every finished, stopped, failed or aborted promotion? PRs on GitHub are not touched.') && void act(() => api.clearFinishedPromotions())}>
+            Clear finished
+          </button>
+        )}
       </div>
       {!data ? (
         <div className="muted">Loading…</div>
@@ -152,6 +162,11 @@ export function PromotionsPage() {
                 {p.status === 'running' && <button className="small" onClick={() => void act(() => api.stopPromotion(p.id))} disabled={busy}>Stop</button>}
                 {(p.status === 'stopped' || p.status === 'failed' || p.status === 'aborted') && (
                   <button className="small primary" onClick={() => void act(() => api.resumePromotion(p.id))} disabled={busy}>Resume</button>
+                )}
+                {p.status !== 'running' && (
+                  <button className="small ghost" onClick={() => void act(() => api.deletePromotion(p.id))} disabled={busy} title="Remove from this list (PRs on GitHub are untouched)" aria-label={`Delete promotion ${p.id}`}>
+                    Delete
+                  </button>
                 )}
               </header>
               <StepChain steps={p.steps} />
