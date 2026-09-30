@@ -129,6 +129,61 @@ async function packRefs(repo: string, commonDir: string, branch: string, remote:
   }
 }
 
+/** The remote's own branch → SHA list (tracking refs cannot be trusted for case on this disk). */
+async function remoteHeads(repo: string, remote: string): Promise<Map<string, string>> {
+  const out = await git(repo, ['ls-remote', '--heads', remote]);
+  return new Map(
+    out
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => {
+        const [sha, ref] = line.split('\t') as [string, string];
+        return [ref.replace(/^refs\/heads\//, ''), sha] as const;
+      }),
+  );
+}
+
+/** Listed (not looked-up) tracking refs whose name matches `branch` ignoring case, with their SHAs. */
+async function trackingEntries(repo: string, remote: string, branch: string): Promise<Map<string, string>> {
+  const prefix = `refs/remotes/${remote}/`;
+  const out = await git(repo, ['for-each-ref', '--format=%(refname) %(objectname)', prefix]);
+  const lower = branch.toLowerCase();
+  const found = new Map<string, string>();
+  for (const line of out.split('\n').filter(Boolean)) {
+    const [ref, sha] = line.split(' ') as [string, string];
+    const name = ref.slice(prefix.length);
+    if (name.toLowerCase() === lower) found.set(name, sha);
+  }
+  return found;
+}
+
+/**
+ * A remote with both `Feature/` and `feature/` branches makes every fetch fold one family into the
+ * other on this disk: the fresh value lands under the wrong name and the exact name goes stale.
+ * A lookup still finds the folded loose file, so git looks fine — until the next pack-refs lets the
+ * stale entry win. Fix it from the listing: pack, drop the wrongly-cased copies, write the exact
+ * ref at the remote's SHA, pack again.
+ */
+async function trackingNeedsRepair(repo: string, remote: string, branch: string, sha: string): Promise<boolean> {
+  const entries = await trackingEntries(repo, remote, branch);
+  return entries.get(branch) !== sha || entries.size > 1;
+}
+
+async function repairTracking(repo: string, remote: string, branch: string, sha: string, step: Step): Promise<void> {
+  const ref = `refs/remotes/${remote}/${branch}`;
+  await git(repo, ['pack-refs', '--all']);
+  for (const name of (await trackingEntries(repo, remote, branch)).keys()) {
+    if (name !== branch) await git(repo, ['update-ref', '-d', `refs/remotes/${remote}/${name}`]);
+  }
+  if ((await runGit(repo, ['cat-file', '-e', `${sha}^{commit}`])).code === 0) await git(repo, ['update-ref', ref, sha]);
+  else await git(repo, ['fetch', remote, `+refs/heads/${branch}:${ref}`]);
+  await git(repo, ['pack-refs', '--all']);
+  const after = await trackingEntries(repo, remote, branch);
+  if (after.get(branch) !== sha || after.size > 1) {
+    throw new StepFailure(step, `could not repair ${remote}/${branch}: tracking refs are ${[...after].map(([n, v]) => `${n}@${v.slice(0, 7)}`).join(', ')}`);
+  }
+}
+
 async function storedAs(repo: string, branch: string): Promise<string | null> {
   const lower = branch.toLowerCase();
   const names = await refNames(repo, 'refs/heads/');
@@ -217,29 +272,30 @@ export async function switchBranch(
 
     // 2. Fetch
     emit('fetch', 'start');
-    let refetchAfterRepair = false;
+    let repairTrackingLater = false;
     let remoteBranches: string[] = [];
+    let remoteSha: string | undefined;
     const remotes = (await git(repo, ['remote'])).split('\n').filter(Boolean);
     const hasRemote = remotes.includes(remote);
     if (hasRemote) {
       await git(repo, ['fetch', '--prune', remote]);
-      // The fetch itself may have created a differently-cased tracking directory; if so, pack and
-      // fetch again so the tracking ref for this branch lands with its real name.
+      const heads = await remoteHeads(repo, remote);
+      remoteBranches = [...heads.keys()];
+      remoteSha = heads.get(branch);
       let note = '';
-      // Tracking refs can themselves be folded on this disk, so the remote's own branch list is the
-      // truth for names; refetch when the tracking ref for this branch does not match it exactly.
-      remoteBranches = (await git(repo, ['ls-remote', '--heads', remote]))
-        .split('\n')
-        .filter(Boolean)
-        .map((line) => line.split('\t')[1]!.replace(/^refs\/heads\//, ''));
-      const tracking = await refNames(repo, `refs/remotes/${remote}/`);
-      const trackingWrong = remoteBranches.includes(branch) && !tracking.includes(branch);
-      if (trackingWrong || caseConflictingDirs(commonDir, branch, remote).length > 0) {
-        if (targetFolded) refetchAfterRepair = true;
+      if (remoteSha && (await trackingNeedsRepair(repo, remote, branch, remoteSha))) {
+        if (otherFolded.length > 0) {
+          throw new StepFailure(
+            'fetch',
+            `${remote}/${branch} is stored with the wrong case, and repairing it would detach checkouts on branches already stored with the wrong case: ` +
+              otherFolded.map((f) => `${f.path} (on ${f.head}, stored as ${f.stored})`).join('; ') +
+              ' — run git-helper with that exact branch name in each of them first',
+          );
+        }
+        if (targetFolded) repairTrackingLater = true;
         else {
-          await packRefs(repo, commonDir, branch, remote, 'fetch');
-          await git(repo, ['fetch', '--prune', remote]);
-          note = '; packed refs and fetched again to keep the exact case';
+          await repairTracking(repo, remote, branch, remoteSha, 'fetch');
+          note = `; repaired ${remote}/${branch}, which a fetch had stored with the wrong case`;
         }
       }
       emit('fetch', 'ok', `fetched ${remote}${note}`);
@@ -258,11 +314,12 @@ export async function switchBranch(
     const localVariants = local.filter((b) => b !== branch && b.toLowerCase() === lower);
     const remoteVariants = remoteBranches.filter((b) => b !== branch && b.toLowerCase() === lower).map((b) => `${remote}/${b}`);
     // One local branch stored with the wrong case (an earlier fold), nothing ambiguous on the
-    // remote: offer to rename it to exactly what was typed.
+    // remote: rename it to exactly what was typed. When the remote has that exact name there is no
+    // doubt about the intended case, so it just happens; a local-only branch asks first.
     let renameFrom: string | undefined;
     if (localVariants.length === 1 && !local.includes(branch) && remoteVariants.length === 0) {
       const stored = localVariants[0]!;
-      if (!(await prompter({ kind: 'fixBranchCase', repo, branch, stored }))) {
+      if (!remoteBranches.includes(branch) && !(await prompter({ kind: 'fixBranchCase', repo, branch, stored }))) {
         throw new Cancelled(`local branch is stored as "${stored}"; renaming it to "${branch}" was declined`);
       }
       renameFrom = stored;
@@ -324,10 +381,10 @@ export async function switchBranch(
 
     // Case repair: pack (clearing the folding directory) and rename in one go, before anything reads
     // HEAD — between the two commands a folded HEAD does not resolve.
-    if (renameFrom || refetchAfterRepair) {
+    if (renameFrom || repairTrackingLater) {
       emit('refs', 'start');
       const notes: string[] = [];
-      if (caseConflictingDirs(commonDir, branch, remote).length > 0) {
+      if (caseConflictingDirs(commonDir, branch, remote).length > 0 || repairTrackingLater) {
         await packRefs(repo, commonDir, branch, remote, 'refs');
         notes.push('packed refs');
       }
@@ -335,9 +392,9 @@ export async function switchBranch(
         await git(repo, ['branch', '-m', renameFrom, branch]);
         notes.push(`renamed ${renameFrom} → ${branch}`);
       }
-      if (refetchAfterRepair) {
-        await git(repo, ['fetch', '--prune', remote]);
-        notes.push(`fetched ${remote} again`);
+      if (repairTrackingLater && remoteSha) {
+        await repairTracking(repo, remote, branch, remoteSha, 'refs');
+        notes.push(`repaired ${remote}/${branch}`);
       }
       emit('refs', 'ok', notes.join('; '));
     }
@@ -388,8 +445,13 @@ export async function switchBranch(
     emit('pull', 'start');
     const upstream = await upstreamOf(repo);
     if (upstream) {
-      await git(repo, ['pull', '--ff-only']);
-      emit('pull', 'ok', `up to date with ${upstream}`);
+      // The fetch step already brought the remote up to date (and repaired this branch's tracking ref),
+      // so fast-forward from it; `git pull` would fetch again and could fold the ref once more.
+      const before = await git(repo, ['rev-parse', 'HEAD']);
+      if (upstream.startsWith(`${remote}/`)) await git(repo, ['merge', '--ff-only', '@{upstream}']);
+      else await git(repo, ['pull', '--ff-only']);
+      const after = await git(repo, ['rev-parse', 'HEAD']);
+      emit('pull', 'ok', before === after ? `up to date with ${upstream}` : `fast-forwarded to ${upstream} (${after.slice(0, 7)})`);
     } else {
       emit('pull', 'skip', 'branch has no upstream');
     }

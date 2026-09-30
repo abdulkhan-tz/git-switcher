@@ -296,29 +296,67 @@ describe.skipIf(!caseInsensitiveFs)('case-folding filesystems', () => {
     expect(sh(fx.work, 'rev-parse', '--abbrev-ref', '@{u}')).toBe('origin/ticket/later');
   });
 
-  it('offers to repair a branch already stored with the wrong case, including the current one', async () => {
+  it('renames a branch stored with the wrong case without asking when the remote has the exact name', async () => {
     const fx = withCapitalFeatureDir();
-    // Reproduce the fold the old way: HEAD says feature/new, the ref is stored as Ticket/new.
+    // Reproduce the fold the old way: HEAD says ticket/new, the ref is stored as Ticket/new.
     sh(fx.work, 'switch', '-q', '-c', 'ticket/new', '--track', 'origin/ticket/new');
     expect(heads(fx.work)).toContain('refs/heads/Ticket/new');
     fx.write(fx.work, 'wip.txt', 'wip');
-    const prompt = scripted(true);
+    const prompt = scripted();
     const r = await switchBranch(fx.work, 'ticket/new', {}, prompt);
-    expect(prompt.asked[0]).toMatchObject({ kind: 'fixBranchCase', branch: 'ticket/new', stored: 'Ticket/new' });
+    expect(prompt.asked).toEqual([]);
     expect(r.outcome).toBe('switched');
+    expect(r.events.some((e) => e.step === 'refs' && e.message.includes('renamed Ticket/new → ticket/new'))).toBe(true);
     expect(heads(fx.work)).toContain('refs/heads/ticket/new');
     expect(heads(fx.work)).not.toContain('refs/heads/Ticket/new');
     expect(sh(fx.work, 'rev-parse', '--abbrev-ref', '@{u}')).toBe('origin/ticket/new');
     expect(fx.read(fx.work, 'wip.txt')).toBe('wip');
   });
 
-  it('declining the repair cancels with nothing changed', async () => {
+  it('asks before renaming a local-only branch stored with the wrong case; declining changes nothing', async () => {
     const fx = withCapitalFeatureDir();
-    sh(fx.work, 'switch', '-q', '-c', 'ticket/new', '--track', 'origin/ticket/new');
-    sh(fx.work, 'switch', '-q', 'main');
-    const r = await switchBranch(fx.work, 'ticket/new', {}, scripted(false));
-    expect(r.outcome).toBe('cancelled');
-    expect(heads(fx.work)).toContain('refs/heads/Ticket/new');
+    sh(fx.work, 'branch', 'ticket/local-only'); // folds to Ticket/local-only; not on the remote
+    expect(heads(fx.work)).toContain('refs/heads/Ticket/local-only');
+    const declined = await switchBranch(fx.work, 'ticket/local-only', {}, scripted(false));
+    expect(declined.outcome).toBe('cancelled');
+    expect(heads(fx.work)).toContain('refs/heads/Ticket/local-only');
     expect(branchOf(fx.work)).toBe('main');
+    const prompt = scripted(true);
+    const r = await switchBranch(fx.work, 'ticket/local-only', {}, prompt);
+    expect(prompt.asked[0]).toMatchObject({ kind: 'fixBranchCase', stored: 'Ticket/local-only' });
+    expect(r.outcome).toBe('switched');
+    expect(heads(fx.work)).toContain('refs/heads/ticket/local-only');
+  });
+
+  it('repairs a tracking ref that is folded and stale, then pulls the real upstream commit', async () => {
+    const fx = makeFixture();
+    fx.pushNewBranch('Ticket/old'); // the remote really has both Ticket/ and ticket/ branches
+    fx.pushNewBranch('ticket/new');
+    sh(fx.work, 'fetch', '-q');
+    sh(fx.work, 'switch', '-q', '-c', 'ticket/new', '--track', 'origin/ticket/new');
+    sh(fx.work, 'pack-refs', '--all'); // exact names, packed
+    // Someone pushes to ticket/new; a plain fetch then writes the update into a Ticket/ directory.
+    sh(fx.other, 'fetch', '-q');
+    sh(fx.other, 'switch', '-q', '--detach', 'origin/ticket/new');
+    fx.commit(fx.other, 'upstream.txt', 'new upstream work');
+    sh(fx.other, 'push', '-q', 'origin', 'HEAD:refs/heads/ticket/new');
+    sh(fx.remote, 'pack-refs', '--all');
+    const upstreamSha = sh(fx.other, 'rev-parse', 'HEAD');
+    sh(fx.work, 'update-ref', 'refs/remotes/origin/Ticket/old', 'origin/Ticket/old'); // loose Ticket/ dir
+    sh(fx.work, 'fetch', '-q');
+    const tracking = sh(fx.work, 'for-each-ref', '--format=%(refname) %(objectname)', 'refs/remotes/origin/');
+    expect(tracking).toContain(`refs/remotes/origin/Ticket/new ${upstreamSha}`); // folded copy is the fresh one
+    // The listed exact name is stale (a plain lookup still finds the folded loose file, which is why
+    // git itself looks fine until the next pack-refs makes the stale entry win).
+    expect(sh(fx.work, 'for-each-ref', '--format=%(objectname)', 'refs/remotes/origin/ticket/new')).not.toBe(upstreamSha);
+
+    const r = await switchBranch(fx.work, 'ticket/new', {}, scripted());
+    expect(r.outcome).toBe('switched');
+    expect(sh(fx.work, 'rev-parse', 'HEAD')).toBe(upstreamSha);
+    expect(sh(fx.work, 'for-each-ref', '--format=%(objectname)', 'refs/remotes/origin/ticket/new')).toBe(upstreamSha);
+    expect(sh(fx.work, 'for-each-ref', '--format=%(refname)', 'refs/remotes/origin/')).not.toContain('refs/remotes/origin/Ticket/new');
+    sh(fx.work, 'pack-refs', '--all'); // and it stays right after the next gc
+    expect(sh(fx.work, 'rev-parse', 'refs/remotes/origin/ticket/new')).toBe(upstreamSha);
+    expect(fx.read(fx.work, 'upstream.txt')).toBe('new upstream work');
   });
 });

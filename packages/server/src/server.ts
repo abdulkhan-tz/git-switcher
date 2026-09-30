@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { extname, join, normalize, resolve } from 'node:path';
 import type { AddressInfo } from 'node:net';
+import { fileURLToPath } from 'node:url';
 import { History, PromotionError, PromotionWorker, Registry, RegistryError, inspect, listWorktrees, repoExists, worktreeDetails, type RepoEntry } from '@git-helper/core';
 import { Batch } from './runs.js';
 
@@ -27,6 +28,8 @@ export interface RunningServer {
   /** Dashboard URL including the token. */
   url: string;
   worker: PromotionWorker;
+  /** True once the engine on disk was rebuilt after this server loaded it. */
+  isStale(): boolean;
   close(): Promise<void>;
 }
 
@@ -49,6 +52,15 @@ const MIME: Record<string, string> = {
   '.json': 'application/json',
 };
 
+/** When the engine on disk was last built. A long-running app compares it with what it loaded. */
+export function engineBuiltAt(): number {
+  try {
+    return statSync(fileURLToPath(import.meta.resolve('@git-helper/core'))).mtimeMs;
+  } catch {
+    return 0;
+  }
+}
+
 export async function repoView(entry: RepoEntry) {
   if (!repoExists(entry)) return { ...entry, missing: true as const, state: null, error: null };
   try {
@@ -63,6 +75,8 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
   const history = opts.history ?? new History();
   const token = opts.token ?? randomBytes(16).toString('hex');
   const worker = opts.worker ?? new PromotionWorker({ registry });
+  const loadedBuild = engineBuiltAt();
+  const isStale = () => engineBuiltAt() > loadedBuild;
   const batches = new Map<string, Batch>();
   const busy = new Set<string>();
 
@@ -162,6 +176,8 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
       if (id && sub === 'resume' && method === 'POST') return json(res, 200, await worker.resumePromotion(id));
     }
 
+    if (resource === 'version' && method === 'GET') return json(res, 200, { stale: isStale() });
+
     if (resource === 'history' && method === 'GET') {
       const repo = url.searchParams.get('repo');
       const path = repo ? (registry.find(repo)?.path ?? repo) : undefined;
@@ -258,6 +274,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
     token,
     url: `http://127.0.0.1:${port}/?token=${token}`,
     worker,
+    isStale,
     close: () =>
       new Promise((ok) => {
         worker.stop();

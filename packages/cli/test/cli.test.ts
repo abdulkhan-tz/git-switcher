@@ -106,7 +106,7 @@ describe('git-helper', () => {
     expect(usage.text).toContain('git helper —');
   });
 
-  it('asks before repairing a branch stored with the wrong case', async () => {
+  it('renames a branch stored with the wrong case when the remote has the exact name', async () => {
     const { existsSync, writeFileSync, mkdtempSync: mk } = await import('node:fs');
     const probe = mk(join(tmpdir(), 'git-helper-ci-'));
     writeFileSync(join(probe, 'a'), '');
@@ -117,8 +117,8 @@ describe('git-helper', () => {
     sh(fx.work, 'fetch', '-q');
     sh(fx.work, 'branch', 'Ticket/old', 'origin/Ticket/old');
     sh(fx.work, 'switch', '-q', '-c', 'ticket/new', '--track', 'origin/ticket/new'); // folds to Ticket/new
-    const { code, text } = await run(['ticket/new'], fx.work, 'y\n');
-    expect(text).toContain('is stored as "Ticket/new"');
+    const { code, text } = await run(['ticket/new'], fx.work, '');
+    expect(text).not.toContain('[y/N]');
     expect(text).toContain('renamed Ticket/new → ticket/new');
     expect(code).toBe(0);
     expect(sh(fx.work, 'for-each-ref', '--format=%(refname)', 'refs/heads/ticket/new')).toBe('refs/heads/ticket/new');

@@ -171,3 +171,10 @@ describe('promotions API', () => {
     expect((await call('POST', '/api/promotions/nope/stop')).status).toBe(400);
   });
 });
+
+describe('version', () => {
+  it('reports whether the engine was rebuilt after the server started', async () => {
+    const { call } = await boot();
+    expect((await call('GET', '/api/version')).body).toEqual({ stale: false });
+  });
+});

@@ -55,6 +55,7 @@ const enc = encodeURIComponent;
 
 export const api = {
   hasToken: () => token.length > 0,
+  version: () => call<{ stale: boolean }>('GET', '/version'),
   repos: () => call<RepoView[]>('GET', '/repos'),
   repo: (id: string) => call<RepoView>('GET', `/repos/${enc(id)}`),
   addRepo: (body: { path: string; name?: string; base?: string; remote?: string }) => call<RepoView>('POST', '/repos', body),

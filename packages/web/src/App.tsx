@@ -15,6 +15,15 @@ export function App() {
     return () => removeEventListener('hashchange', onHash);
   }, []);
   const Page = PAGES.find((p) => p.id === pageId)!.component;
+  // A long-running dashboard keeps the engine it started with; say so once it has been rebuilt.
+  const [stale, setStale] = useState(false);
+  useEffect(() => {
+    if (!api.hasToken()) return;
+    const check = () => void api.version().then((v) => setStale(v.stale), () => {});
+    check();
+    const t = setInterval(check, 60_000);
+    return () => clearInterval(t);
+  }, []);
 
   return (
     <div className="app">
@@ -31,6 +40,11 @@ export function App() {
         </nav>
       </header>
       <main>
+        {stale && (
+          <div className="notice warn-notice" role="status">
+            git helper was updated since this window started and is still running the old version. Restart it (tray: <strong>Restart to apply update</strong>, or rerun <code>git-helper ui</code>).
+          </div>
+        )}
         {api.hasToken() ? (
           <Page />
         ) : (

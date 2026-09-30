@@ -137,6 +137,7 @@ input:focus, button:focus-visible { outline: 2px solid var(--accent); outline-of
 
 .notice { padding: 10px 12px; border-radius: 8px; background: var(--info-bg); color: var(--info); }
 .notice.error { background: var(--danger-bg); color: var(--danger); }
+.notice.warn-notice { background: var(--warn-bg); color: var(--warn); margin-bottom: 12px; }
 .empty { text-align: center; padding: 40px; color: var(--muted); background: var(--surface); border: 1px dashed var(--border); border-radius: var(--radius); }
 
 .run-panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; }

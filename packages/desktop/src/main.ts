@@ -80,6 +80,19 @@ async function refreshMenu(): Promise<void> {
   if (!tray) return;
   const groups = registry.groups();
   const template: MenuItemConstructorOptions[] = [
+    ...(server.isStale()
+      ? [
+          {
+            label: 'Restart to apply update',
+            click: () => {
+              quitting = true;
+              app.relaunch();
+              app.exit(0);
+            },
+          } as MenuItemConstructorOptions,
+          { type: 'separator' } as const,
+        ]
+      : []),
     { label: 'Open Dashboard', click: () => showWindow() },
     { type: 'separator' },
     ...(await repoItems()),
