@@ -73,15 +73,18 @@ pnpm desktop        # tray app: repo branches, "Switch <group>…", PRs waiting 
                     # and a notification when a new promotion PR is ready
 ```
 
-On macOS, make a clickable app for it (goes to `~/Applications`; drag it to the Dock if you like):
+On macOS, make it a real app (goes to `~/Applications`):
 
 ```bash
 scripts/make-app.sh
 ```
 
-`git helper.app` starts the tray app — through its login item when "Start at login" is on, so it is
-restarted if it crashes — or brings the dashboard to the front if it is already running. It runs
-this checkout's code, so rebuilding is enough; re-run the script only if you move the checkout.
+`git helper.app` is a copy-on-write clone of this checkout's Electron with its own name, icon and
+bundle id, whose app folder links back to `packages/desktop`. It is the same app you click and the
+one that runs, so Keep in Dock, Cmd+Q and clicking it again work like any Mac app, and
+`pnpm build` applies without rebuilding it. It also re-points an existing "Start at login" item at
+itself. Re-run the script after moving the checkout or upgrading Electron. The first launch from
+Finder may ask for access to the folder the checkout lives in (e.g. Documents) — allow it.
 
 Try them against throwaway data without touching your registry:
 

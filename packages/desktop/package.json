@@ -1,5 +1,6 @@
 {
   "name": "@git-helper/desktop",
+  "productName": "git helper",
   "version": "0.1.0",
   "private": true,
   "type": "module",

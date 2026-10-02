@@ -30,7 +30,8 @@ export function isLoginItem(): boolean {
 }
 
 /** Writes a LaunchAgent that starts the tray app at login and restarts it if it crashes (not when quit). */
-export function enableLoginItem(opts: { electron: string; appPath: string; path: string; logFile?: string }): void {
+/** `appPath` is only for a development run (`electron <dir>`); a built git helper.app finds its own code. */
+export function enableLoginItem(opts: { electron: string; appPath?: string; path: string; logFile?: string }): void {
   const log = opts.logFile ?? join(homedir(), 'Library', 'Logs', 'git-helper.log');
   const plist = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -40,8 +41,8 @@ export function enableLoginItem(opts: { electron: string; appPath: string; path:
   <key>ProgramArguments</key>
   <array>
     <string>${xml(opts.electron)}</string>
-    <string>${xml(opts.appPath)}</string>
-  </array>
+${opts.appPath ? `    <string>${xml(opts.appPath)}</string>
+` : ''}  </array>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
   <key>EnvironmentVariables</key><dict><key>PATH</key><string>${xml(opts.path)}</string></dict>

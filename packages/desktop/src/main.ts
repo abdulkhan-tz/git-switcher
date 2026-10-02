@@ -119,7 +119,7 @@ async function refreshMenu(): Promise<void> {
             type: 'checkbox',
             checked: isLoginItem(),
             click: (item: Electron.MenuItem) => {
-              if (item.checked) enableLoginItem({ electron: process.execPath, appPath: app.getAppPath(), path: process.env.PATH ?? '' });
+              if (item.checked) enableLoginItem({ electron: process.execPath, appPath: app.isPackaged ? undefined : app.getAppPath(), path: process.env.PATH ?? '' });
               else disableLoginItem();
               void refreshMenu();
             },
