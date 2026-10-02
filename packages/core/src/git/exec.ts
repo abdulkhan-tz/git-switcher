@@ -23,7 +23,9 @@ export function runGit(cwd: string, args: readonly string[]): Promise<GitResult>
   return new Promise((resolve) => {
     execFile(
       'git',
-      [...args],
+      // Never let one of our commands kick off git's automatic housekeeping: `gc --auto` packs refs,
+      // and packing breaks any checkout whose branch a case-insensitive disk has folded.
+      ['-c', 'gc.auto=0', '-c', 'maintenance.auto=false', ...args],
       {
         cwd,
         maxBuffer: 64 * 1024 * 1024,

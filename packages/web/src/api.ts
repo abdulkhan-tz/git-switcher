@@ -1,4 +1,4 @@
-import type { Group, HistoryEntry, Promotion, RepoEntry, RepoState, Settings, WorkerStatus, WorktreeDetails } from '@git-helper/core';
+import type { FoldedHead, Group, HistoryEntry, Promotion, RepoEntry, RepoState, Settings, WorkerStatus, WorktreeDetails } from '@git-helper/core';
 import type { RunEvent } from '@git-helper/server';
 
 export type { RunEvent };
@@ -10,7 +10,7 @@ export interface PromotionsView {
   worker: WorkerStatus;
 }
 
-export type RepoView = RepoEntry & { missing: boolean; state: RepoState | null; error: string | null };
+export type RepoView = RepoEntry & { missing: boolean; state: RepoState | null; folded?: FoldedHead[]; error: string | null };
 
 // The token arrives once in the URL (?token=…); keep it for reloads, then drop it from the address bar.
 const TOKEN_KEY = 'git-helper-token';
@@ -61,6 +61,7 @@ export const api = {
   addRepo: (body: { path: string; name?: string; base?: string; remote?: string }) => call<RepoView>('POST', '/repos', body),
   updateRepo: (id: string, body: { name?: string; base?: string; remote?: string }) => call<RepoView>('PATCH', `/repos/${enc(id)}`, body),
   removeRepo: (id: string) => call<RepoEntry>('DELETE', `/repos/${enc(id)}`),
+  repairCase: (id: string) => call<{ repaired: FoldedHead[]; repo: RepoView }>('POST', `/repos/${enc(id)}/repair`),
   worktrees: (id: string) => call<WorktreeDetails[]>('GET', `/repos/${enc(id)}/worktrees`),
   setPipeline: (id: string, stages: string[], autoMerge: string[]) => call<RepoView>('PUT', `/repos/${enc(id)}/pipeline`, { stages, autoMerge }),
   clearPipeline: (id: string) => call<RepoView>('DELETE', `/repos/${enc(id)}/pipeline`),

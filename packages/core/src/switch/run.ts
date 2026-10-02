@@ -99,7 +99,7 @@ function caseConflictingDirs(commonDir: string, branch: string, remote: string):
 }
 
 /** A checkout whose HEAD names a branch that git stored with different case (an earlier fold). */
-interface FoldedHead {
+export interface FoldedHead {
   path: string;
   head: string;
   stored: string;
@@ -110,7 +110,7 @@ interface FoldedHead {
  * `feature/x`, the packed ref is `Feature/x`, and packed lookups are case-sensitive. So every
  * checkout on a folded branch has to be known before packing.
  */
-async function foldedHeads(repo: string): Promise<FoldedHead[]> {
+export async function foldedHeads(repo: string): Promise<FoldedHead[]> {
   const exact = new Set(await refNames(repo, 'refs/heads/'));
   const byLower = new Map([...exact].map((n) => [n.toLowerCase(), n]));
   return (await listWorktrees(repo)).flatMap((w) => {
@@ -118,6 +118,29 @@ async function foldedHeads(repo: string): Promise<FoldedHead[]> {
     const stored = byLower.get(w.branch.toLowerCase());
     return stored ? [{ path: w.path, head: w.branch, stored }] : [];
   });
+}
+
+/**
+ * Fixes every checkout whose branch git stored with different case (HEAD `feature/x`, ref
+ * `Feature/x`) — including ones a pack has already broken, where HEAD resolves to nothing and git
+ * claims there are no commits. HEAD holds the name the branch was created with, so that is the name
+ * kept. Packs first (removing the folding directory, so the renamed refs keep their case), then
+ * renames them all back to back. Returns what it repaired.
+ */
+export async function repairCase(repoPath: string): Promise<FoldedHead[]> {
+  const repo = await repoRoot(repoPath).catch(() => canonical(repoPath));
+  const folded = await foldedHeads(repo);
+  if (folded.length === 0) return [];
+  const exact = await refNames(repo, 'refs/heads/');
+  for (const f of folded) {
+    const variants = exact.filter((n) => n.toLowerCase() === f.head.toLowerCase());
+    if (variants.length !== 1) {
+      throw new Error(`${f.path} is on "${f.head}", stored ambiguously as ${variants.join(', ')} — rename one by hand`);
+    }
+  }
+  await git(repo, ['pack-refs', '--all']);
+  for (const f of folded) await git(repo, ['branch', '-m', f.stored, f.head]);
+  return folded;
 }
 
 /** `git pack-refs --all` (what `git gc` does), then confirm no folding directory is left. */
@@ -249,30 +272,27 @@ export async function switchBranch(
     await git(repo, ['worktree', 'prune']);
     let commonDir = await git(repo, ['rev-parse', '--git-common-dir']);
     if (!isAbsolute(commonDir)) commonDir = join(repo, commonDir);
-    // Keep the branch name's exact case on a case-insensitive disk (see caseConflictingDirs).
-    const folded = await foldedHeads(repo);
-    const otherFolded = folded.filter((f) => f.head !== branch);
-    const targetFolded = folded.some((f) => f.head === branch);
-    const conflicts = caseConflictingDirs(commonDir, branch, remote);
-    if (conflicts.length > 0 && otherFolded.length > 0) {
-      throw new StepFailure(
-        'preflight',
-        `${conflicts.join(', ')} would change the case of "${branch}", and fixing that would detach checkouts on branches already stored with the wrong case: ` +
-          otherFolded.map((f) => `${f.path} (on ${f.head}, stored as ${f.stored})`).join('; ') +
-          ' — run git-helper with that exact branch name in each of them first',
-      );
+    // Keep the branch name's exact case on a case-insensitive disk (see caseConflictingDirs). First
+    // repair any checkout an earlier fold left wrongly cased — packing is only safe without them.
+    let repairedNote = '';
+    try {
+      const repaired = await repairCase(repo);
+      if (repaired.length) {
+        repairedNote = `; repaired ${repaired.length} branch(es) stored with the wrong case: ${repaired.map((f) => `${f.stored} → ${f.head}`).join(', ')}`;
+      }
+    } catch (e) {
+      throw new StepFailure('preflight', (e as Error).message);
     }
-    // With the target itself folded, packing waits until the rename is confirmed (refs step).
+    const conflicts = caseConflictingDirs(commonDir, branch, remote);
     let packNote = '';
-    if (conflicts.length > 0 && !targetFolded) {
+    if (conflicts.length > 0) {
       await packRefs(repo, commonDir, branch, remote, 'preflight');
       packNote = `; packed refs so ${conflicts.join(', ')} cannot change the case of "${branch}"`;
     }
-    emit('preflight', 'ok', `on ${from ?? '(detached HEAD)'}${packNote}`);
+    emit('preflight', 'ok', `on ${from ?? '(detached HEAD)'}${repairedNote}${packNote}`);
 
     // 2. Fetch
     emit('fetch', 'start');
-    let repairTrackingLater = false;
     let remoteBranches: string[] = [];
     let remoteSha: string | undefined;
     const remotes = (await git(repo, ['remote'])).split('\n').filter(Boolean);
@@ -284,19 +304,8 @@ export async function switchBranch(
       remoteSha = heads.get(branch);
       let note = '';
       if (remoteSha && (await trackingNeedsRepair(repo, remote, branch, remoteSha))) {
-        if (otherFolded.length > 0) {
-          throw new StepFailure(
-            'fetch',
-            `${remote}/${branch} is stored with the wrong case, and repairing it would detach checkouts on branches already stored with the wrong case: ` +
-              otherFolded.map((f) => `${f.path} (on ${f.head}, stored as ${f.stored})`).join('; ') +
-              ' — run git-helper with that exact branch name in each of them first',
-          );
-        }
-        if (targetFolded) repairTrackingLater = true;
-        else {
-          await repairTracking(repo, remote, branch, remoteSha, 'fetch');
-          note = `; repaired ${remote}/${branch}, which a fetch had stored with the wrong case`;
-        }
+        await repairTracking(repo, remote, branch, remoteSha, 'fetch');
+        note = `; repaired ${remote}/${branch}, which a fetch had stored with the wrong case`;
       }
       emit('fetch', 'ok', `fetched ${remote}${note}`);
     } else if (remotes.length === 0) {
@@ -379,24 +388,13 @@ export async function switchBranch(
       emit('worktree', 'skip', 'branch not checked out elsewhere');
     }
 
-    // Case repair: pack (clearing the folding directory) and rename in one go, before anything reads
-    // HEAD — between the two commands a folded HEAD does not resolve.
-    if (renameFrom || repairTrackingLater) {
+    // A branch stored with the wrong case that no checkout is on (checked-out ones were repaired in
+    // preflight): pack so the new name keeps its case, then rename.
+    if (renameFrom) {
       emit('refs', 'start');
-      const notes: string[] = [];
-      if (caseConflictingDirs(commonDir, branch, remote).length > 0 || repairTrackingLater) {
-        await packRefs(repo, commonDir, branch, remote, 'refs');
-        notes.push('packed refs');
-      }
-      if (renameFrom) {
-        await git(repo, ['branch', '-m', renameFrom, branch]);
-        notes.push(`renamed ${renameFrom} → ${branch}`);
-      }
-      if (repairTrackingLater && remoteSha) {
-        await repairTracking(repo, remote, branch, remoteSha, 'refs');
-        notes.push(`repaired ${remote}/${branch}`);
-      }
-      emit('refs', 'ok', notes.join('; '));
+      if (caseConflictingDirs(commonDir, branch, remote).length > 0) await packRefs(repo, commonDir, branch, remote, 'refs');
+      await git(repo, ['branch', '-m', renameFrom, branch]);
+      emit('refs', 'ok', `renamed ${renameFrom} → ${branch}`);
     }
 
     // 5/6. Stash

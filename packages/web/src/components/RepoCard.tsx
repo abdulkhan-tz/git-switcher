@@ -66,6 +66,33 @@ export function RepoCard({ repo, selected, busy, onToggle, onChanged, onError }:
       <div className="path" title={repo.path}>{repo.path}</div>
 
       {repo.missing && <div className="badge danger">path missing</div>}
+      {repo.folded && repo.folded.length > 0 && (
+        <div className="notice error small" role="alert">
+          {repo.folded.length} checkout(s) on a branch macOS stored with the wrong case
+          {repo.folded.some((f) => f.path === repo.path) ? ' (including this one — git may say it has no commits)' : ''}:
+          <ul className="folded">
+            {repo.folded.map((f) => (
+              <li key={f.path}>
+                <code>{f.stored}</code> → <code>{f.head}</code>
+              </li>
+            ))}
+          </ul>
+          <button
+            className="small"
+            disabled={busy}
+            onClick={async () => {
+              try {
+                await api.repairCase(repo.id);
+                onChanged();
+              } catch (e) {
+                onError((e as Error).message);
+              }
+            }}
+          >
+            Repair
+          </button>
+        </div>
+      )}
       {repo.error && <div className="notice error small">{repo.error}</div>}
       {s && (
         <>

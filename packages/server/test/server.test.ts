@@ -216,3 +216,25 @@ describe('settings and deletion API', () => {
     expect((await call('GET', '/api/history')).body).toEqual([]);
   });
 });
+
+describe('case repair API', () => {
+  it('reports folded checkouts on the repo and repairs them', async () => {
+    const { existsSync, writeFileSync, mkdtempSync: mk } = await import('node:fs');
+    const probe = mk(join(tmpdir(), 'git-helper-ci-'));
+    writeFileSync(join(probe, 'a'), '');
+    if (!existsSync(join(probe, 'A'))) return; // case-sensitive disk: nothing folds
+    const { call } = await boot();
+    const fx = makeFixture();
+    fx.pushNewBranch('ticket/a');
+    sh(fx.work, 'fetch', '-q');
+    sh(fx.work, 'branch', 'Ticket/other');
+    sh(fx.work, 'switch', '-q', '-c', 'ticket/a', '--track', 'origin/ticket/a');
+    sh(fx.work, 'pack-refs', '--all');
+    const repo = (await call('POST', '/api/repos', { path: fx.work, name: 'api' })).body;
+    expect(repo.folded).toEqual([expect.objectContaining({ head: 'ticket/a', stored: 'Ticket/a' })]);
+    const fixed = (await call('POST', `/api/repos/${repo.id}/repair`)).body;
+    expect(fixed.repaired).toHaveLength(1);
+    expect(fixed.repo.folded).toEqual([]);
+    expect(fixed.repo.state.branch).toBe('ticket/a');
+  });
+});

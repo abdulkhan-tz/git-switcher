@@ -207,6 +207,7 @@ select {
 .interval-num { width: 60px; padding: 3px 6px; }
 .check-timer .hint { flex-basis: 100%; }
 .row-actions { width: 1%; text-align: right; }
+.folded { margin: 4px 0 6px; padding-left: 18px; }
 .row-actions .link { font-size: 16px; line-height: 1; }
 .promotions { display: flex; flex-direction: column; gap: 10px; }
 .card.promotion.running { border-color: var(--info); }

@@ -119,7 +119,7 @@ describe('git-helper', () => {
     sh(fx.work, 'switch', '-q', '-c', 'ticket/new', '--track', 'origin/ticket/new'); // folds to Ticket/new
     const { code, text } = await run(['ticket/new'], fx.work, '');
     expect(text).not.toContain('[y/N]');
-    expect(text).toContain('renamed Ticket/new → ticket/new');
+    expect(text).toContain('Ticket/new → ticket/new');
     expect(code).toBe(0);
     expect(sh(fx.work, 'for-each-ref', '--format=%(refname)', 'refs/heads/ticket/new')).toBe('refs/heads/ticket/new');
   });

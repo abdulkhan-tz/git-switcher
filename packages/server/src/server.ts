@@ -4,7 +4,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { extname, join, normalize, resolve } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { fileURLToPath } from 'node:url';
-import { History, PromotionError, PromotionWorker, Registry, RegistryError, SettingsError, inspect, listWorktrees, repoExists, worktreeDetails, type RepoEntry } from '@git-helper/core';
+import { History, PromotionError, PromotionWorker, Registry, RegistryError, SettingsError, foldedHeads, repairCase, inspect, listWorktrees, repoExists, worktreeDetails, type RepoEntry } from '@git-helper/core';
 import { Batch } from './runs.js';
 
 export interface ServerOptions {
@@ -64,7 +64,8 @@ export function engineBuiltAt(): number {
 export async function repoView(entry: RepoEntry) {
   if (!repoExists(entry)) return { ...entry, missing: true as const, state: null, error: null };
   try {
-    return { ...entry, missing: false as const, state: await inspect(entry.path), error: null };
+    const [state, folded] = await Promise.all([inspect(entry.path), foldedHeads(entry.path).catch(() => [])]);
+    return { ...entry, missing: false as const, state, folded, error: null };
   } catch (e) {
     return { ...entry, missing: false as const, state: null, error: e instanceof Error ? e.message : String(e) };
   }
@@ -134,6 +135,13 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
         return json(res, 200, await repoView(registry.setPipeline(repoOr404(id).id, { stages: b.stages.map(String), autoMerge })));
       }
       if (id && sub === 'pipeline' && method === 'DELETE') return json(res, 200, await repoView(registry.setPipeline(repoOr404(id).id, null)));
+      if (id && sub === 'repair' && method === 'POST') {
+        const entry = repoOr404(id);
+        const repaired = await repairCase(entry.path).catch((e: Error) => {
+          throw new HttpError(409, e.message);
+        });
+        return json(res, 200, { repaired, repo: await repoView(entry) });
+      }
       if (id && sub === 'worktrees' && method === 'GET') {
         const entry = repoOr404(id);
         const wts = await listWorktrees(entry.path);

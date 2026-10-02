@@ -1,4 +1,4 @@
-import { History, PromotionError, Registry, RegistryError, SettingsError, inspect, repoExists, repoRoot, switchBranch, type RunResult, type SwitchOptions } from '@git-helper/core';
+import { History, PromotionError, Registry, RegistryError, SettingsError, repairCase, inspect, repoExists, repoRoot, switchBranch, type RunResult, type SwitchOptions } from '@git-helper/core';
 import { parseArgs, str, type ParsedArgs } from './args.js';
 import { lineReader, makeOut, type Io, type Out } from './io.js';
 import { pipelineCommand, promoteCommand, promotionsCommand, PromoteUsageError, type PromoteDeps } from './promote.js';
@@ -28,6 +28,7 @@ Repos
   git-helper set <repo> [--name n] [--base ref] [--remote r]   ("" clears base/remote)
   git-helper rm <repo>
   git-helper ls                              registered repos with branch and state
+  git-helper repair [--group <name>]         fix checkouts whose branch macOS stored with the wrong case
   git-helper group add <name> <repo...>      create or replace a group
   git-helper group rm <name> | group ls
   git-helper history [--repo <repo>] [--limit n]
@@ -78,6 +79,8 @@ export async function main(argv: string[], io: Io, deps: Deps = {}): Promise<num
       }
       case 'ls':
         return await list(out, registry);
+      case 'repair':
+        return await repair(args, io, out, registry);
       case 'group':
         return group(rest, out, registry);
       case 'history': {
@@ -160,6 +163,24 @@ async function runSwitch(branch: string, args: ParsedArgs, io: Io, out: Out, reg
   if (rows.some((r) => r.result.outcome === 'failed')) return 1;
   if (rows.some((r) => r.result.outcome === 'cancelled')) return 2;
   return 0;
+}
+
+/** Fixes checkouts whose branch a case-insensitive disk stored with different case. */
+async function repair(args: ParsedArgs, io: Io, out: Out, registry: Registry): Promise<number> {
+  const group = str(args.flags, 'group');
+  const targets = group ? registry.groupRepos(group).map((r) => ({ name: r.name, path: r.path })) : [{ name: io.cwd, path: io.cwd }];
+  let failed = false;
+  for (const t of targets) {
+    try {
+      const repaired = await repairCase(t.path);
+      if (repaired.length === 0) out.line(`${out.bold(t.name)}: ${out.dim('nothing to repair')}`);
+      for (const f of repaired) out.line(`${out.bold(t.name)}: ${out.green('repaired')} ${f.stored} → ${f.head}  ${out.dim(f.path)}`);
+    } catch (e) {
+      failed = true;
+      out.line(`${out.bold(t.name)}: ${out.red((e as Error).message)}`);
+    }
+  }
+  return failed ? 1 : 0;
 }
 
 async function list(out: Out, registry: Registry): Promise<number> {

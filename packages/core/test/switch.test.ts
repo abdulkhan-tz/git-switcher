@@ -314,7 +314,8 @@ describe.skipIf(!caseInsensitiveFs)('case-folding filesystems', () => {
     const r = await switchBranch(fx.work, 'ticket/new', {}, prompt);
     expect(prompt.asked).toEqual([]);
     expect(r.outcome).toBe('switched');
-    expect(r.events.some((e) => e.step === 'refs' && e.message.includes('renamed Ticket/new → ticket/new'))).toBe(true);
+    // It is the current branch, so preflight repairs it before anything reads HEAD.
+    expect(r.events.some((e) => e.step === 'preflight' && e.message.includes('Ticket/new → ticket/new'))).toBe(true);
     expect(heads(fx.work)).toContain('refs/heads/ticket/new');
     expect(heads(fx.work)).not.toContain('refs/heads/Ticket/new');
     expect(sh(fx.work, 'rev-parse', '--abbrev-ref', '@{u}')).toBe('origin/ticket/new');
@@ -366,5 +367,52 @@ describe.skipIf(!caseInsensitiveFs)('case-folding filesystems', () => {
     sh(fx.work, 'pack-refs', '--all'); // and it stays right after the next gc
     expect(sh(fx.work, 'rev-parse', 'refs/remotes/origin/ticket/new')).toBe(upstreamSha);
     expect(fx.read(fx.work, 'upstream.txt')).toBe('new upstream work');
+  });
+});
+
+describe.skipIf(!caseInsensitiveFs)('checkouts broken by a fold plus a pack', () => {
+  /** Reproduces the real failure: folded HEADs in two checkouts, then `git gc` packs refs. */
+  function brokenCheckouts() {
+    const fx = makeFixture();
+    fx.pushNewBranch('ticket/a');
+    fx.pushNewBranch('ticket/b');
+    sh(fx.work, 'fetch', '-q');
+    sh(fx.work, 'branch', 'Ticket/other'); // a capital directory exists
+    sh(fx.work, 'switch', '-q', '-c', 'ticket/a', '--track', 'origin/ticket/a'); // folds to Ticket/a
+    const wt = join(fx.dir, 'wt-b');
+    sh(fx.work, 'worktree', 'add', '-q', '-b', 'ticket/b', wt, 'origin/ticket/b'); // folds to Ticket/b
+    sh(fx.work, 'pack-refs', '--all'); // what gc --auto did — both HEADs now point at nothing
+    return { fx, wt };
+  }
+
+  it('reproduces: both checkouts look like they have no commits', () => {
+    const { fx, wt } = brokenCheckouts();
+    expect(() => sh(fx.work, 'rev-parse', '--verify', 'HEAD')).toThrow();
+    expect(() => sh(wt, 'rev-parse', '--verify', 'HEAD')).toThrow();
+  });
+
+  it('a switch from a broken checkout repairs every folded checkout first, then switches', async () => {
+    const { fx, wt } = brokenCheckouts();
+    fx.write(fx.work, 'wip.txt', 'wip');
+    const r = await switchBranch(fx.work, 'main', {}, scripted());
+    expect(r.outcome, r.error).toBe('switched');
+    expect(r.events.find((e) => e.step === 'preflight' && e.status === 'ok')?.message).toContain('repaired 2 branch');
+    expect(branchOf(fx.work)).toBe('main');
+    expect(fx.read(fx.work, 'wip.txt')).toBe('wip');
+    expect(heads(fx.work)).toEqual(expect.arrayContaining(['refs/heads/ticket/a', 'refs/heads/ticket/b', 'refs/heads/Ticket/other']));
+    expect(heads(fx.work)).not.toContain('refs/heads/Ticket/a');
+    expect(sh(wt, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('ticket/b'); // the other checkout works again
+    sh(fx.work, 'pack-refs', '--all'); // and survives the next gc
+    expect(sh(wt, 'rev-parse', '--verify', 'HEAD')).toMatch(/^[0-9a-f]{40}$/);
+  });
+
+  it('repairCase fixes them without switching anything', async () => {
+    const { repairCase } = await import('../src/index.js');
+    const { fx, wt } = brokenCheckouts();
+    const repaired = await repairCase(fx.work);
+    expect(repaired.map((f) => `${f.stored}→${f.head}`).sort()).toEqual(['Ticket/a→ticket/a', 'Ticket/b→ticket/b']);
+    expect(sh(fx.work, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('ticket/a');
+    expect(sh(wt, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('ticket/b');
+    expect(await repairCase(fx.work)).toEqual([]); // idempotent
   });
 });

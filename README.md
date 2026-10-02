@@ -44,6 +44,12 @@ git helper history                               # past runs, incl. any stash a 
 If a run stops (pull diverged, pop conflict, …) it prints which stash holds your changes and the
 exact command to restore them. Nothing is switched back behind your back.
 
+On a case-insensitive disk (the macOS default) a `Feature/` ref directory silently turns a new
+`feature/x` branch into `Feature/x`, and a later `git gc` then leaves that checkout pointing at
+nothing ("You do not have the initial commit yet"). Every switch first repairs such checkouts in
+all worktrees, keeps names exactly as typed, and never triggers `gc` itself. To repair without
+switching: `git helper repair [--group <name>]` — the dashboard also flags affected repos.
+
 ## Promote
 
 ```bash
