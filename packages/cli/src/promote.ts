@@ -131,6 +131,18 @@ async function watch(ids: string[], out: Out, worker: PromotionWorker, deps: Pro
 export async function promotionsCommand(rest: string[], out: Out, deps: PromoteDeps): Promise<number> {
   const worker = deps.worker ?? new PromotionWorker({ registry: deps.registry });
   const [sub, id] = rest;
+  if (sub === 'checks') {
+    if (id !== undefined) {
+      if (id !== 'on' && id !== 'off') throw new UsageError('git-helper promotions checks [on|off]');
+      worker.setChecksEnabled(id === 'on');
+    }
+    out.line(
+      worker.paused
+        ? `Promotion checks are ${out.yellow('off')} — no GitHub calls; running promotions wait. Turn on with: git-helper promotions checks on`
+        : `Promotion checks are ${out.green('on')}, every ${Math.round(worker.intervalMs / 1000)}s.`,
+    );
+    return 0;
+  }
   if (sub === 'interval') {
     if (id !== undefined) worker.setIntervalSec(validInterval(id));
     out.line(`Promotions are checked every ${Math.round(worker.intervalMs / 1000)}s${id !== undefined ? ' (saved; a running worker switches over immediately)' : ''}.`);
@@ -152,7 +164,7 @@ export async function promotionsCommand(rest: string[], out: Out, deps: PromoteD
     renderPromotion(out, p);
     return 0;
   }
-  if (sub !== undefined && sub !== 'ls') throw new UsageError('git-helper promotions [ls | stop <id> | resume <id> | rm <id> | clear | interval [1-60]]');
+  if (sub !== undefined && sub !== 'ls') throw new UsageError('git-helper promotions [ls | stop <id> | resume <id> | rm <id> | clear | interval [1-60] | checks [on|off]]');
   const list = worker.store.list().slice(0, 20);
   if (list.length === 0) out.line(out.dim('No promotions yet. Start one with: git-helper promote <repo>'));
   list.forEach((p, i) => {
@@ -161,7 +173,8 @@ export async function promotionsCommand(rest: string[], out: Out, deps: PromoteD
   });
   const st = worker.status();
   out.line();
-  if (st.holder) {
+  if (st.paused) out.line(out.yellow('Promotion checks are off — turn on with: git-helper promotions checks on'));
+  else if (st.holder) {
     const secs = st.nextCheckAt ? Math.max(0, Math.round((new Date(st.nextCheckAt).getTime() - Date.now()) / 1000)) : null;
     out.line(out.dim(`Worker running (pid ${st.holder}), checking every ${Math.round(st.intervalMs / 1000)}s${secs !== null ? ` — next check in ${secs}s` : ''}.`));
   } else out.line(out.dim('No worker running — start `git-helper ui`, the tray app, or `git-helper promote … --watch`.'));

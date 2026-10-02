@@ -22,6 +22,8 @@ export interface WorkerOptions {
 export interface WorkerStatus {
   /** This process is the one polling. */
   polling: boolean;
+  /** Checks are switched off in settings; no GitHub calls are made. */
+  paused: boolean;
   /** PID of the polling process, if any is alive. */
   holder: number | null;
   intervalMs: number;
@@ -33,10 +35,14 @@ export interface WorkerStatus {
 
 interface LockInfo {
   pid: number;
+  paused?: boolean;
   intervalMs?: number;
   nextCheckAt?: string | null;
   lastCheckAt?: string | null;
 }
+
+/** While paused, how often the polling process re-reads settings to notice it was switched back on. */
+const PAUSED_RECHECK_MS = 3000;
 
 function pidAlive(pid: number): boolean {
   try {
@@ -78,6 +84,10 @@ export class PromotionWorker {
     this.now = opts.now ?? (() => new Date());
   }
 
+  get paused(): boolean {
+    return !this.settings.load().promotionChecksEnabled;
+  }
+
   get intervalMs(): number {
     return this.fixedIntervalMs ?? this.settings.load().promotionIntervalSec * 1000;
   }
@@ -113,7 +123,7 @@ export class PromotionWorker {
 
   private writeLock(): void {
     mkdirSync(dirname(this.lockFile), { recursive: true });
-    const info: LockInfo = { pid: process.pid, intervalMs: this.intervalMs, nextCheckAt: this.nextCheckAt, lastCheckAt: this.lastCheckAt };
+    const info: LockInfo = { pid: process.pid, paused: this.paused, intervalMs: this.intervalMs, nextCheckAt: this.nextCheckAt, lastCheckAt: this.lastCheckAt };
     writeFileSync(this.lockFile, JSON.stringify(info));
   }
 
@@ -138,7 +148,8 @@ export class PromotionWorker {
     this.owner = this.acquireLock();
     if (!this.owner) return false;
     process.once('exit', this.releaseOnExit);
-    void this.tick().then(() => this.schedule());
+    if (this.paused) this.schedule();
+    else void this.tick().then(() => this.schedule());
     return true;
   }
 
@@ -146,15 +157,27 @@ export class PromotionWorker {
   private schedule(): void {
     if (!this.owner) return;
     if (this.timer) clearTimeout(this.timer);
-    const ms = this.intervalMs;
-    this.nextCheckAt = new Date(this.now().getTime() + ms).toISOString();
+    // Paused: no GitHub calls, only a cheap look at settings now and then so switching checks back
+    // on (from any git-helper process) takes effect within seconds.
+    const paused = this.paused;
+    const ms = paused ? PAUSED_RECHECK_MS : this.intervalMs;
+    this.nextCheckAt = paused ? null : new Date(this.now().getTime() + ms).toISOString();
     this.writeLock();
     this.timer = setTimeout(() => {
       // Hand over gracefully if another process took the lock.
       if (!this.acquireLock()) return this.stop();
-      void this.tick().then(() => this.schedule());
+      if (this.paused) return this.schedule();
+      if (paused) this.schedule(); // just switched back on: start a full interval, not an instant check
+      else void this.tick().then(() => this.schedule());
     }, ms);
     this.timer.unref?.();
+  }
+
+  /** Switches GitHub checks on or off for every git-helper process. */
+  setChecksEnabled(enabled: boolean): boolean {
+    this.settings.update({ promotionChecksEnabled: enabled });
+    this.schedule();
+    return enabled;
   }
 
   stop(): void {
@@ -199,6 +222,7 @@ export class PromotionWorker {
     const lock = this.readLock();
     return {
       polling: this.owner,
+      paused: this.paused,
       holder: lock?.pid ?? null,
       intervalMs: this.owner ? this.intervalMs : (lock?.intervalMs ?? this.intervalMs),
       nextCheckAt: this.owner ? this.nextCheckAt : (lock?.nextCheckAt ?? null),

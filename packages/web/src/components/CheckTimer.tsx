@@ -35,6 +35,18 @@ export function CheckTimer({ worker, onChanged, onError }: { worker: WorkerStatu
     }
   };
 
+  const toggle = async () => {
+    setBusy(true);
+    try {
+      await api.setChecksEnabled(worker.paused);
+      onChanged();
+    } catch (e) {
+      onError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const checkNow = async () => {
     setBusy(true);
     try {
@@ -49,8 +61,14 @@ export function CheckTimer({ worker, onChanged, onError }: { worker: WorkerStatu
 
   return (
     <div className="check-timer">
+      <label className="checks-toggle small">
+        <input type="checkbox" role="switch" checked={!worker.paused} onChange={toggle} disabled={busy} aria-label="Check promotions" />
+        <span>Check promotions</span>
+      </label>
       <div className="countdown" aria-live="off">
-        {!running ? (
+        {worker.paused ? (
+          <span className="badge warn">paused — no GitHub checks; running promotions wait</span>
+        ) : !running ? (
           <span className="muted">No worker is polling — start the tray app or <code>git-helper ui</code>.</span>
         ) : worker.checking || left === 0 ? (
           <span className="badge info">checking GitHub…</span>
@@ -66,7 +84,7 @@ export function CheckTimer({ worker, onChanged, onError }: { worker: WorkerStatu
         )}
         <button className="link small" onClick={checkNow} disabled={busy}>Check now</button>
       </div>
-      <label className="interval small">
+      <label className={`interval small ${worker.paused ? 'dim' : ''}`}>
         <span className="muted">Check every</span>
         <input
           type="range"

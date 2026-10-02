@@ -190,7 +190,11 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
       if (method === 'GET') return json(res, 200, worker.settings.load());
       if (method === 'PUT') {
         const b = await readBody(req);
-        worker.setIntervalSec(b.promotionIntervalSec as number);
+        if ('promotionIntervalSec' in b) worker.setIntervalSec(b.promotionIntervalSec as number);
+        if ('promotionChecksEnabled' in b) {
+          if (typeof b.promotionChecksEnabled !== 'boolean') throw new HttpError(400, 'promotionChecksEnabled must be true or false');
+          worker.setChecksEnabled(b.promotionChecksEnabled);
+        }
         return json(res, 200, { settings: worker.settings.load(), worker: worker.status() });
       }
     }

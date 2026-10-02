@@ -5,9 +5,11 @@ import { configDir } from './paths.js';
 export interface Settings {
   /** How often the promotion worker checks GitHub, 1–60 seconds. */
   promotionIntervalSec: number;
+  /** Off: the worker makes no GitHub calls; running promotions just wait. */
+  promotionChecksEnabled: boolean;
 }
 
-export const DEFAULT_SETTINGS: Settings = { promotionIntervalSec: 60 };
+export const DEFAULT_SETTINGS: Settings = { promotionIntervalSec: 60, promotionChecksEnabled: true };
 export const MIN_INTERVAL_SEC = 1;
 export const MAX_INTERVAL_SEC = 60;
 
@@ -35,7 +37,8 @@ export class SettingsStore {
       } catch {
         /* keep the default for a missing or out-of-range value */
       }
-      return { promotionIntervalSec };
+      const promotionChecksEnabled = typeof raw.promotionChecksEnabled === 'boolean' ? raw.promotionChecksEnabled : DEFAULT_SETTINGS.promotionChecksEnabled;
+      return { promotionIntervalSec, promotionChecksEnabled };
     } catch {
       return { ...DEFAULT_SETTINGS };
     }
@@ -44,6 +47,7 @@ export class SettingsStore {
   update(patch: Partial<Settings>): Settings {
     const next = { ...this.load(), ...patch };
     next.promotionIntervalSec = validInterval(next.promotionIntervalSec);
+    if (typeof next.promotionChecksEnabled !== 'boolean') throw new SettingsError('promotionChecksEnabled must be true or false');
     mkdirSync(dirname(this.file), { recursive: true });
     const tmp = `${this.file}.${process.pid}.tmp`;
     writeFileSync(tmp, JSON.stringify(next, null, 2) + '\n');

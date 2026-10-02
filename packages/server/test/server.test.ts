@@ -238,3 +238,24 @@ describe('case repair API', () => {
     expect(fixed.repo.state.branch).toBe('ticket/a');
   });
 });
+
+describe('pausing checks via the API', () => {
+  it('toggles promotion checks and reports paused', async () => {
+    const { PromotionStore, PromotionWorker, SettingsStore } = await import('@git-helper/core');
+    const dir = mkdtempSync(join(tmpdir(), 'git-helper-srvq-'));
+    const registry = new Registry(join(dir, 'repos.json'));
+    const worker = new PromotionWorker({ registry, store: new PromotionStore(join(dir, 'p.json')), settings: new SettingsStore(join(dir, 's.json')), lockFile: join(dir, 'lock') });
+    running = await startServer({ registry, history: new History(join(dir, 'h.jsonl')), token: 't', worker });
+    const call = async (method: string, path: string, body?: unknown) => {
+      const res = await fetch(`http://127.0.0.1:${running!.port}${path}`, { method, headers: { 'x-git-helper-token': 't', 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+      return { status: res.status, body: (await res.json()) as any };
+    };
+    const off = await call('PUT', '/api/settings', { promotionChecksEnabled: false });
+    expect(off.body.settings).toMatchObject({ promotionChecksEnabled: false });
+    expect(off.body.worker).toMatchObject({ paused: true, nextCheckAt: null });
+    expect((await call('PUT', '/api/settings', { promotionChecksEnabled: 'no' })).status).toBe(400);
+    const on = await call('PUT', '/api/settings', { promotionChecksEnabled: true });
+    expect(on.body.worker.paused).toBe(false);
+    expect(on.body.worker.nextCheckAt).not.toBeNull();
+  });
+});

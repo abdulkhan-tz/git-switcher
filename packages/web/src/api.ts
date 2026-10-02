@@ -73,6 +73,7 @@ export const api = {
   checkPromotions: () => call<WorkerStatus>('POST', '/promotions/tick'),
   deletePromotion: (id: string) => call<Promotion>('DELETE', `/promotions/${enc(id)}`),
   clearFinishedPromotions: () => call<{ removed: number }>('DELETE', '/promotions'),
+  setChecksEnabled: (enabled: boolean) => call<{ settings: Settings; worker: WorkerStatus }>('PUT', '/settings', { promotionChecksEnabled: enabled }),
   setIntervalSec: (sec: number) => call<{ settings: Settings; worker: WorkerStatus }>('PUT', '/settings', { promotionIntervalSec: sec }),
   deleteHistoryEntry: (runId: string) => call<{ removed: number }>('DELETE', `/history/${enc(runId)}`),
   clearHistory: () => call<{ removed: number }>('DELETE', '/history'),

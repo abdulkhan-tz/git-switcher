@@ -109,6 +109,15 @@ async function refreshMenu(): Promise<void> {
       : []),
     { type: 'separator' },
     promotionsItem(),
+    {
+      label: 'Check promotions',
+      type: 'checkbox',
+      checked: !server.worker.paused,
+      click: (item: Electron.MenuItem) => {
+        server.worker.setChecksEnabled(item.checked);
+        void refreshMenu();
+      },
+    },
     { label: 'History', click: () => showWindow(dashboardUrl('history')) },
     { label: 'Refresh', click: () => void refreshMenu() },
     { type: 'separator' },
@@ -134,7 +143,8 @@ async function refreshMenu(): Promise<void> {
 function promotionsItem(): MenuItemConstructorOptions {
   const running = server.worker.store.list().filter((p) => p.status === 'running');
   const waiting = running.flatMap((p) => p.steps.filter((s) => s.status === 'open' && s.pr).map((s) => ({ p, s })));
-  const label = running.length ? `Promotions — ${running.length} running` : 'Promotions';
+  const paused = server.worker.paused;
+  const label = `Promotions${running.length ? ` — ${running.length} running` : ''}${paused ? ' (checks off)' : ''}`;
   if (waiting.length === 0) return { label, click: () => showWindow(dashboardUrl('promotions')) };
   return {
     label,
@@ -155,7 +165,7 @@ function showCountdown(): void {
     if (!tray) return;
     const running = server.worker.store.list().some((p) => p.status === 'running');
     const st = server.worker.status();
-    if (!running || !st.nextCheckAt) return tray.setTitle('');
+    if (!running || st.paused || !st.nextCheckAt) return tray.setTitle('');
     const left = Math.max(0, Math.ceil((new Date(st.nextCheckAt).getTime() - Date.now()) / 1000));
     tray.setTitle(st.checking || left === 0 ? ' …' : ` ${left}s`, { fontType: 'monospacedDigit' });
   }, 1000);

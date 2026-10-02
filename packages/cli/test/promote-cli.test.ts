@@ -84,3 +84,15 @@ describe('interval and deletion commands', () => {
     expect((await run(['promotions', 'clear'])).text).toContain('Deleted 0 finished');
   });
 });
+
+describe('promotions checks on|off', () => {
+  it('pauses and resumes checks', async () => {
+    const { run, worker } = await setup();
+    expect((await run(['promotions', 'checks', 'off'])).text).toContain('checks are off');
+    expect(worker.paused).toBe(true);
+    expect((await run(['promotions'])).text).toContain('Promotion checks are off');
+    expect((await run(['promotions', 'checks', 'maybe'])).code).toBe(1);
+    expect((await run(['promotions', 'checks', 'on'])).text).toContain('checks are on');
+    expect(worker.paused).toBe(false);
+  });
+});

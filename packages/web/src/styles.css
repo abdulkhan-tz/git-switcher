@@ -203,6 +203,9 @@ select {
 .progress { display: inline-block; width: 90px; height: 4px; border-radius: 2px; background: var(--surface-2); overflow: hidden; }
 .progress span { display: block; height: 100%; background: var(--accent); transition: width 0.25s linear; }
 .interval { display: flex; gap: 8px; align-items: center; }
+.interval.dim { opacity: 0.55; }
+.checks-toggle { display: flex; gap: 6px; align-items: center; cursor: pointer; font-weight: 600; }
+.checks-toggle input { accent-color: var(--accent); width: 16px; height: 16px; }
 .interval input[type='range'] { width: 140px; accent-color: var(--accent); }
 .interval-num { width: 60px; padding: 3px 6px; }
 .check-timer .hint { flex-basis: 100%; }

@@ -22,6 +22,7 @@ Promote  (one PR per step; the next opens when you merge the previous one)
   git-helper promote <repo…> | --group <name> [--from <stage>] [--watch] [--poll <sec>]
   git-helper promotions [stop <id> | resume <id> | rm <id> | clear]
   git-helper promotions interval [1-60]      show or set how often GitHub is checked (seconds)
+  git-helper promotions checks [on|off]      pause or resume all promotion checks
 
 Repos
   git-helper add [path] [--name n] [--base origin/develop] [--remote origin]

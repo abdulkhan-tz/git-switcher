@@ -258,3 +258,44 @@ describe('interval, countdown and deletion', () => {
     expect(worker.clearFinished()).toBe(2);
   });
 });
+
+describe('pausing checks', () => {
+  it('makes no GitHub calls while checks are off, and resumes when switched back on', async () => {
+    const { SettingsStore } = await import('../src/index.js');
+    const { registry, github, store, dir } = await setup(base);
+    const settings = new SettingsStore(join(dir, 'settings.json'));
+    const w = new PromotionWorker({ store, registry, github, settings, lockFile: join(dir, 'lock3'), intervalMs: 50 });
+    const p = await w.startPromotion('api'); // opens PR #1
+    w.setChecksEnabled(false);
+    expect(w.start()).toBe(true);
+    github.merge(1);
+    const callsBefore = github.calls.length;
+    await new Promise((r) => setTimeout(r, 400));
+    expect(github.calls.length).toBe(callsBefore); // nothing at all while paused
+    expect(w.status()).toMatchObject({ polling: true, paused: true, nextCheckAt: null });
+    expect(store.get(p.id)!.steps[0]!.status).toBe('open');
+    // Another process sees it paused through the lock file.
+    const observer = new PromotionWorker({ store, registry, github, settings, lockFile: join(dir, 'lock3') });
+    expect(observer.status().paused).toBe(true);
+
+    w.setChecksEnabled(true);
+    expect(w.status().paused).toBe(false);
+    await new Promise((r) => setTimeout(r, 300));
+    expect(store.get(p.id)!.steps.map((s) => s.status)).toEqual(['merged', 'open', 'pending']);
+    w.stop();
+  });
+
+  it('a pause saved by another process stops the polling one within seconds', async () => {
+    const { SettingsStore } = await import('../src/index.js');
+    const { registry, github, store, dir } = await setup(base);
+    const w = new PromotionWorker({ store, registry, github, settings: new SettingsStore(join(dir, 's.json')), lockFile: join(dir, 'lock4'), intervalMs: 50 });
+    await w.startPromotion('api');
+    w.start();
+    new SettingsStore(join(dir, 's.json')).update({ promotionChecksEnabled: false }); // e.g. the CLI
+    await new Promise((r) => setTimeout(r, 200)); // the next scheduled wake-up notices
+    const calls = github.calls.length;
+    await new Promise((r) => setTimeout(r, 300));
+    expect(github.calls.length).toBe(calls);
+    w.stop();
+  });
+});
