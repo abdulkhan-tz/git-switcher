@@ -10,6 +10,7 @@ process.env.PATH = loginShellPath();
 // packages/desktop/dist → packages/web/dist and packages/desktop/assets
 const WEB_DIR = fileURLToPath(new URL('../../web/dist', import.meta.url));
 const ICON = fileURLToPath(new URL('../assets/trayTemplate.png', import.meta.url));
+const APP_ICON = fileURLToPath(new URL('../assets/icon.png', import.meta.url));
 const SMOKE = process.argv.includes('--smoke');
 const MENU_REFRESH_MS = 30_000;
 
@@ -206,6 +207,8 @@ if (!app.requestSingleInstanceLock()) {
     app.on('will-quit', () => void server.close());
     if (SMOKE) return smokeTest();
 
+    // Dock icon while the window is open (a development Electron would show its own logo).
+    app.dock?.setIcon(nativeImage.createFromPath(APP_ICON));
     const icon = nativeImage.createFromPath(ICON);
     icon.setTemplateImage(true);
     tray = new Tray(icon);

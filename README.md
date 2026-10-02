@@ -73,6 +73,16 @@ pnpm desktop        # tray app: repo branches, "Switch <group>…", PRs waiting 
                     # and a notification when a new promotion PR is ready
 ```
 
+On macOS, make a clickable app for it (goes to `~/Applications`; drag it to the Dock if you like):
+
+```bash
+scripts/make-app.sh
+```
+
+`git helper.app` starts the tray app — through its login item when "Start at login" is on, so it is
+restarted if it crashes — or brings the dashboard to the front if it is already running. It runs
+this checkout's code, so rebuilding is enough; re-run the script only if you move the checkout.
+
 Try them against throwaway data without touching your registry:
 
 ```bash
