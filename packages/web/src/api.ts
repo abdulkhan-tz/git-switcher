@@ -1,9 +1,11 @@
-import type { FoldedHead, Group, HistoryEntry, Promotion, RepoEntry, RepoState, Settings, WorkerStatus, WorktreeDetails } from '@git-helper/core';
+import type { ServiceStatus, FoldedHead, Group, HistoryEntry, Promotion, RepoEntry, RepoState, Settings, WorkerStatus, WorktreeDetails } from '@git-helper/core';
 import type { RunEvent } from '@git-helper/server';
 
 export type { RunEvent };
 
 export type { Promotion };
+
+export type ServiceView = ServiceStatus & { job?: 'starting' | 'stopping'; error?: string };
 
 export interface PromotionsView {
   promotions: Promotion[];
@@ -77,6 +79,10 @@ export const api = {
   setIntervalSec: (sec: number) => call<{ settings: Settings; worker: WorkerStatus }>('PUT', '/settings', { promotionIntervalSec: sec }),
   deleteHistoryEntry: (runId: string) => call<{ removed: number }>('DELETE', `/history/${enc(runId)}`),
   clearHistory: () => call<{ removed: number }>('DELETE', '/history'),
+  services: () => call<ServiceView[]>('GET', '/services'),
+  servicesUp: (names: string[]) => call<{ ok: true }>('POST', '/services/up', { names }),
+  servicesDown: (names: string[]) => call<{ ok: true }>('POST', '/services/down', { names }),
+  serviceLog: (name: string) => call<{ log: string }>('GET', `/services/${enc(name)}/logs?lines=120`),
   groups: () => call<Group[]>('GET', '/groups'),
   setGroup: (name: string, repoIds: string[]) => call<Group>('PUT', `/groups/${enc(name)}`, { repoIds }),
   removeGroup: (name: string) => call<{ ok: true }>('DELETE', `/groups/${enc(name)}`),

@@ -4,7 +4,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { extname, join, normalize, resolve } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { fileURLToPath } from 'node:url';
-import { History, PromotionError, PromotionWorker, Registry, RegistryError, SettingsError, foldedHeads, repairCase, inspect, listWorktrees, repoExists, worktreeDetails, type RepoEntry } from '@git-helper/core';
+import { ServiceError, ServiceManager, History, PromotionError, PromotionWorker, Registry, RegistryError, SettingsError, foldedHeads, repairCase, inspect, listWorktrees, repoExists, worktreeDetails, type RepoEntry } from '@git-helper/core';
 import { Batch } from './runs.js';
 
 export interface ServerOptions {
@@ -17,6 +17,7 @@ export interface ServerOptions {
   webDir?: string;
   /** Promotion worker; one is created (and started) by default. */
   worker?: PromotionWorker;
+  services?: ServiceManager;
   /** Start polling promotions. Default true. */
   pollPromotions?: boolean;
 }
@@ -80,6 +81,9 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
   const isStale = () => engineBuiltAt() > loadedBuild;
   const batches = new Map<string, Batch>();
   const busy = new Set<string>();
+  const services = opts.services ?? new ServiceManager();
+  /** Starting a service can take minutes, so the API answers at once; a failure is shown on the next poll. */
+  const serviceJobs = new Map<string, { action: 'starting' | 'stopping'; error?: string }>();
 
   const json = (res: ServerResponse, status: number, body: unknown) => {
     res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
@@ -199,6 +203,35 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
       }
     }
 
+    if (resource === 'services') {
+      if (!id && method === 'GET') {
+        const rows = await services.status();
+        return json(res, 200, rows.map((r) => ({ ...r, job: serviceJobs.get(r.name)?.action, error: r.state === 'up' ? undefined : serviceJobs.get(r.name)?.error })));
+      }
+      if (id && sub === 'logs' && method === 'GET') return json(res, 200, { log: services.tail(id, Number(url.searchParams.get('lines') ?? 80)) });
+      if ((id === 'up' || id === 'down') && !sub && method === 'POST') {
+        // POST /services/up|down with {names: []} — an empty list means every service
+        const b = await readBody(req);
+        const names = Array.isArray(b.names) ? b.names.map(String) : [];
+        for (const n of names) services.store.get(n);
+        const targets = names.length ? names : services.store.list().map((s) => s.name);
+        const action = id === 'up' ? 'starting' : 'stopping';
+        for (const n of targets) {
+          if (serviceJobs.get(n) && !serviceJobs.get(n)!.error) throw new HttpError(409, `${n} is already ${serviceJobs.get(n)!.action}`);
+        }
+        const involved = id === 'up' ? services.order(targets).map((d) => d.name) : targets;
+        for (const n of involved) serviceJobs.set(n, { action });
+        void (id === 'up' ? services.up(targets) : services.down(targets))
+          .catch((e: Error) => {
+            for (const n of involved) if (serviceJobs.has(n)) serviceJobs.set(n, { action, error: e.message });
+          })
+          .finally(() => {
+            for (const n of involved) if (!serviceJobs.get(n)?.error) serviceJobs.delete(n);
+          });
+        return json(res, 202, { ok: true });
+      }
+    }
+
     if (resource === 'version' && method === 'GET') return json(res, 200, { stale: isStale() });
 
     if (resource === 'history' && method === 'DELETE') {
@@ -289,7 +322,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
       if (presented !== token) throw new HttpError(401, 'missing or wrong token');
       await api(req, res, url);
     } catch (e) {
-      const status = e instanceof HttpError ? e.status : e instanceof RegistryError || e instanceof PromotionError || e instanceof SettingsError ? 400 : 500;
+      const status = e instanceof HttpError ? e.status : e instanceof RegistryError || e instanceof PromotionError || e instanceof SettingsError || e instanceof ServiceError ? 400 : 500;
       if (!res.headersSent) json(res, status, { error: e instanceof Error ? e.message : String(e) });
       else res.end();
     }

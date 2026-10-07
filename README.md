@@ -8,6 +8,9 @@ Two everyday git chores, done safely, for any repo:
 - **Promote** — walk a branch chain upstream (e.g. `develop → qa → stage → main`) one PR at a
   time. You merge each PR on GitHub; a worker notices and opens the next one.
 
+- **Services** — start the local processes a project needs (a database, a gateway, an auth server)
+  in the background, see which are up, and stop them, without keeping an IDE open for each.
+
 CLI (`git-helper`, also `git helper` and `gsw`), a local web dashboard, and a tray app share
 one engine. Design: [docs/specs/2026-09-29-git-switcher-design.md](docs/specs/2026-09-29-git-switcher-design.md).
 
@@ -71,6 +74,27 @@ The worker runs inside `git helper ui`, the tray app, or `promote --watch`, poll
 60 s, and keeps state in `promotions.json`, so it resumes after a restart. Only one process
 polls at a time.
 
+## Services
+
+```bash
+git helper services                         # what is up and what is down
+git helper services up [name…]              # start in the background, dependencies first (none = all)
+git helper services down [name…]            # stop what git helper started (and what depends on it)
+git helper services restart api
+git helper services logs api --lines 100    # logs live in ~/.config/git-helper/logs/
+git helper services add api --cwd ~/code/api --port 8080 \
+    --prepare 'mvn -q -DskipTests package' \
+    --command 'exec java -jar target/api.jar' --depends db
+git helper services import services.json    # {"services":[{ name, cwd, command, port, … }]}
+```
+
+A service is a shell `command` (end it with `exec` so the tracked process is the service itself),
+an optional `prepare` step (a build; if it fails nothing starts), the TCP `port` it listens on,
+optional `env`, `dependsOn` and `startTimeoutSec`. "Up" means the port is open, so a service
+started by an IDE or another terminal shows as *up (elsewhere)*: it is never started twice and
+never stopped by git helper. Definitions live in `services.json` in the config directory. The
+dashboard has a Services tab with Start / Stop / Log per service.
+
 ## Dashboard and tray app
 
 ```bash
@@ -106,10 +130,10 @@ Registry, history and promotions live in `~/.config/git-helper/` (`$XDG_CONFIG_H
 
 | Package | Role |
 |---|---|
-| `packages/core` | all logic: `inspect/`, `switch/`, `registry/`, `history/`, `promote/` |
+| `packages/core` | all logic: `inspect/`, `switch/`, `registry/`, `history/`, `promote/`, `services/` |
 | `packages/cli` | the `git-helper` / `gsw` binary |
 | `packages/server` | localhost API (+ SSE) and the in-process promotion worker |
-| `packages/web` | dashboard SPA (Repos, Promotions, History) |
+| `packages/web` | dashboard SPA (Repos, Promotions, Services, History) |
 | `packages/desktop` | Electron tray app |
 
 A new feature is a new `core` module + server route + an entry in `web/src/pages/index.ts`.

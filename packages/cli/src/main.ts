@@ -1,7 +1,8 @@
-import { History, PromotionError, Registry, RegistryError, SettingsError, repairCase, inspect, repoExists, repoRoot, switchBranch, type RunResult, type SwitchOptions } from '@git-helper/core';
+import { ServiceManager, History, PromotionError, Registry, RegistryError, SettingsError, repairCase, inspect, repoExists, repoRoot, switchBranch, type RunResult, type SwitchOptions } from '@git-helper/core';
 import { parseArgs, str, type ParsedArgs } from './args.js';
 import { lineReader, makeOut, type Io, type Out } from './io.js';
 import { pipelineCommand, promoteCommand, promotionsCommand, PromoteUsageError, type PromoteDeps } from './promote.js';
+import { servicesCommand } from './services.js';
 import { renderEvent, renderHistory, renderResult, renderSummary, terminalPrompter } from './render.js';
 
 export const VERSION = '0.1.0';
@@ -24,6 +25,9 @@ Promote  (one PR per step; the next opens when you merge the previous one)
   git-helper promotions interval [1-60]      show or set how often GitHub is checked (seconds)
   git-helper promotions checks [on|off]      pause or resume all promotion checks
 
+Services  (run local dev processes in the background and see what is up)
+  git-helper services [up|down|restart|logs|add|import|rm] [name…]   (details: git-helper services help)
+
 Repos
   git-helper add [path] [--name n] [--base origin/develop] [--remote origin]
   git-helper set <repo> [--name n] [--base ref] [--remote r]   ("" clears base/remote)
@@ -44,6 +48,7 @@ export interface Deps {
   /** Launches the dashboard (phase 2); injected so the CLI does not hard-depend on the server. */
   startUi?: (opts: { port?: number; open: boolean }, out: Out) => Promise<number>;
   promote?: Omit<PromoteDeps, 'registry'>;
+  services?: ServiceManager;
 }
 
 export async function main(argv: string[], io: Io, deps: Deps = {}): Promise<number> {
@@ -106,6 +111,9 @@ export async function main(argv: string[], io: Io, deps: Deps = {}): Promise<num
         return await promoteCommand(rest, args, out, { registry, ...deps.promote });
       case 'promotions':
         return await promotionsCommand(rest, out, { registry, ...deps.promote });
+      case 'services':
+      case 'svc':
+        return await servicesCommand(rest, args, out, deps.services);
       case 'ui': {
         if (!deps.startUi) throw new UsageError('the dashboard is not available in this build');
         const port = str(args.flags, 'port');
