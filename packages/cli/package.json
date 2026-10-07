@@ -1,11 +1,11 @@
 {
-  "name": "@git-helper/cli",
+  "name": "@tidy/cli",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "bin": {
-    "git-helper": "dist/bin.js",
-    "gsw": "dist/bin.js"
+    "git-tidy": "dist/bin.js",
+    "tidy": "dist/bin.js"
   },
   "main": "dist/main.js",
   "scripts": {
@@ -13,7 +13,7 @@
     "typecheck": "tsc -p . --noEmit"
   },
   "dependencies": {
-    "@git-helper/core": "workspace:*",
-    "@git-helper/server": "workspace:*"
+    "@tidy/core": "workspace:*",
+    "@tidy/server": "workspace:*"
   }
 }

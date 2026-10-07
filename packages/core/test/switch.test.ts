@@ -259,7 +259,7 @@ describe('default base without origin/HEAD', () => {
 // On a case-insensitive filesystem (macOS default) a loose ref directory `Ticket/` swallows new
 // `ticket/...` refs, which then read back as `Ticket/...`.
 const caseInsensitiveFs = (() => {
-  const d = mkdtempSync(join(tmpdir(), 'git-helper-case-'));
+  const d = mkdtempSync(join(tmpdir(), 'git-tidy-case-'));
   writeFileSync(join(d, 'a'), '');
   return existsSync(join(d, 'A'));
 })();

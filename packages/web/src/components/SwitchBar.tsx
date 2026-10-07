@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import type { Group } from '@git-helper/core';
+import type { Group } from '@tidy/core';
 
 interface Props {
   groups: Group[];

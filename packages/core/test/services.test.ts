@@ -20,7 +20,7 @@ async function freePort(): Promise<number> {
 }
 
 function setup() {
-  const dir = mkdtempSync(join(tmpdir(), 'git-helper-svc-'));
+  const dir = mkdtempSync(join(tmpdir(), 'git-tidy-svc-'));
   const manager = new ServiceManager(new ServiceStore(join(dir, 'services.json')));
   cleanup.push(() => manager.down([]));
   return { dir, manager };

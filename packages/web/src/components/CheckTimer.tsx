@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { WorkerStatus } from '@git-helper/core';
+import type { WorkerStatus } from '@tidy/core';
 import { api } from '../api';
 
 const MIN = 1;
@@ -69,7 +69,7 @@ export function CheckTimer({ worker, onChanged, onError }: { worker: WorkerStatu
         {worker.paused ? (
           <span className="badge warn">paused — no GitHub checks; running promotions wait</span>
         ) : !running ? (
-          <span className="muted">No worker is polling — start the tray app or <code>git-helper ui</code>.</span>
+          <span className="muted">No worker is polling — start the tray app or <code>git-tidy ui</code>.</span>
         ) : worker.checking || left === 0 ? (
           <span className="badge info">checking GitHub…</span>
         ) : left !== null ? (

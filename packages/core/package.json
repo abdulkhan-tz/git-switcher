@@ -1,5 +1,5 @@
 {
-  "name": "@git-helper/core",
+  "name": "@tidy/core",
   "version": "0.1.0",
   "private": true,
   "type": "module",

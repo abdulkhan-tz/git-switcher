@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import type { PromotionStep } from '@git-helper/core';
+import type { PromotionStep } from '@tidy/core';
 import { api, type Promotion, type PromotionsView, type RepoView } from '../api';
 import { CheckTimer } from '../components/CheckTimer';
 
@@ -148,7 +148,7 @@ export function PromotionsPage() {
       ) : data.promotions.length === 0 ? (
         <div className="empty">
           <p>No promotions yet.</p>
-          <p className="muted">Pick repos above, or run <code>git-helper promote &lt;repo&gt;</code>.</p>
+          <p className="muted">Pick repos above, or run <code>git-tidy promote &lt;repo&gt;</code>.</p>
         </div>
       ) : (
         <div className="promotions">

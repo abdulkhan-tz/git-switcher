@@ -23,10 +23,10 @@ importers:
 
   packages/cli:
     dependencies:
-      '@git-helper/core':
+      '@tidy/core':
         specifier: workspace:*
         version: link:../core
-      '@git-helper/server':
+      '@tidy/server':
         specifier: workspace:*
         version: link:../server
 
@@ -34,10 +34,10 @@ importers:
 
   packages/desktop:
     dependencies:
-      '@git-helper/core':
+      '@tidy/core':
         specifier: workspace:*
         version: link:../core
-      '@git-helper/server':
+      '@tidy/server':
         specifier: workspace:*
         version: link:../server
     devDependencies:
@@ -47,7 +47,7 @@ importers:
 
   packages/server:
     dependencies:
-      '@git-helper/core':
+      '@tidy/core':
         specifier: workspace:*
         version: link:../core
 
@@ -60,10 +60,10 @@ importers:
         specifier: ^19.0.0
         version: 19.3.0(react@19.3.0)
     devDependencies:
-      '@git-helper/core':
+      '@tidy/core':
         specifier: workspace:*
         version: link:../core
-      '@git-helper/server':
+      '@tidy/server':
         specifier: workspace:*
         version: link:../server
       '@types/react':

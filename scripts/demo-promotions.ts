@@ -12,7 +12,7 @@ import { startServer } from '../packages/server/src/index.js';
 import { FakeGitHub } from '../packages/core/test/fakeGithub.js';
 
 const MERGE_EVERY_MS = Number(process.env.MERGE_EVERY_MS ?? 20_000);
-const dir = mkdtempSync(join(tmpdir(), 'git-helper-promo-demo-'));
+const dir = mkdtempSync(join(tmpdir(), 'git-tidy-promo-demo-'));
 const registry = new Registry(join(dir, 'repos.json'));
 
 for (const name of ['api', 'web']) {

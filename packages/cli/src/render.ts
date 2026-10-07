@@ -1,4 +1,4 @@
-import type { HistoryEntry, PromptRequest, Prompter, RunResult, StepEvent } from '@git-helper/core';
+import type { HistoryEntry, PromptRequest, Prompter, RunResult, StepEvent } from '@tidy/core';
 import type { Out } from './io.js';
 
 export function renderEvent(out: Out, e: StepEvent): void {

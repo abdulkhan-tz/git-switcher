@@ -9,7 +9,7 @@ import { FakeGitHub } from './fakeGithub.js';
 const STAGES = ['develop', 'qa', 'stage', 'main'];
 
 async function setup(branches: Record<string, string[]>, autoMerge?: string[]) {
-  const dir = mkdtempSync(join(tmpdir(), 'git-helper-promo-'));
+  const dir = mkdtempSync(join(tmpdir(), 'git-tidy-promo-'));
   const fx = makeFixture();
   const registry = new Registry(join(dir, 'repos.json'));
   const repo = await registry.add(fx.work, { name: 'api' });
@@ -206,7 +206,7 @@ describe('worker lock', () => {
 describe('interval, countdown and deletion', () => {
   it('validates the 1–60 s interval and persists it', async () => {
     const { SettingsStore, SettingsError } = await import('../src/index.js');
-    const dir = mkdtempSync(join(tmpdir(), 'git-helper-set-'));
+    const dir = mkdtempSync(join(tmpdir(), 'git-tidy-set-'));
     const settings = new SettingsStore(join(dir, 'settings.json'));
     expect(settings.load().promotionIntervalSec).toBe(60);
     expect(settings.update({ promotionIntervalSec: 5 }).promotionIntervalSec).toBe(5);

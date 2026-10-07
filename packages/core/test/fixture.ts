@@ -24,7 +24,7 @@ export interface Fixture {
 
 /** bare remote with `main` and `feature`, plus two clones on `main`. */
 export function makeFixture(): Fixture {
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'git-helper-')));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'git-tidy-')));
   const remote = join(dir, 'remote.git');
   sh(dir, 'init', '--bare', '-b', 'main', remote);
   const seed = join(dir, 'seed');

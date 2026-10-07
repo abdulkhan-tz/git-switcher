@@ -3,9 +3,9 @@
 # Usage: scripts/demo.sh [port]     (DEMO_DIR overrides where the repos are created)
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-DEMO_DIR="${DEMO_DIR:-${TMPDIR:-/tmp}/git-helper-demo}"
+DEMO_DIR="${DEMO_DIR:-${TMPDIR:-/tmp}/git-tidy-demo}"
 PORT="${1:-4321}"
-export GIT_HELPER_HOME="$DEMO_DIR/config"
+export TIDY_HOME="$DEMO_DIR/config"
 CLI=(node "$ROOT/packages/cli/dist/bin.js")
 
 if [ ! -d "$DEMO_DIR/api" ]; then

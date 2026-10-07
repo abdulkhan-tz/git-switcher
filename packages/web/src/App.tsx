@@ -29,7 +29,7 @@ export function App() {
     <div className="app">
       <header className="topbar">
         <div className="brand">
-          <span className="logo" aria-hidden>⎇</span> git helper
+          <span className="logo" aria-hidden>⎇</span> tidy
         </div>
         <nav>
           {PAGES.map((p) => (
@@ -42,13 +42,13 @@ export function App() {
       <main>
         {stale && (
           <div className="notice warn-notice" role="status">
-            git helper was updated since this window started and is still running the old version. Restart it (tray: <strong>Restart to apply update</strong>, or rerun <code>git-helper ui</code>).
+            tidy was updated since this window started and is still running the old version. Restart it (tray: <strong>Restart to apply update</strong>, or rerun <code>git-tidy ui</code>).
           </div>
         )}
         {api.hasToken() ? (
           <Page />
         ) : (
-          <div className="notice error">No access token. Open the dashboard with <code>git-helper ui</code>, which puts the token in the URL.</div>
+          <div className="notice error">No access token. Open the dashboard with <code>git-tidy ui</code>, which puts the token in the URL.</div>
         )}
       </main>
     </div>

@@ -1,7 +1,7 @@
 import { app, BrowserWindow, Menu, Notification, Tray, nativeImage, shell, type MenuItemConstructorOptions } from 'electron';
 import { fileURLToPath } from 'node:url';
-import { Registry, inspect, repoExists } from '@git-helper/core';
-import { startServer, type RunningServer } from '@git-helper/server';
+import { Registry, inspect, repoExists } from '@tidy/core';
+import { startServer, type RunningServer } from '@tidy/server';
 import { disableLoginItem, enableLoginItem, isLoginItem, loginShellPath } from './login.js';
 
 // Started from login/Finder/`open`, macOS gives a PATH without Homebrew (no `gh`); use the shell's.
@@ -33,7 +33,7 @@ function showWindow(url = dashboardUrl()): void {
       height: 760,
       minWidth: 420,
       minHeight: 400,
-      title: 'git helper',
+      title: 'git tidy',
       show: !SMOKE,
       webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
     });
@@ -135,7 +135,7 @@ async function refreshMenu(): Promise<void> {
           } as MenuItemConstructorOptions,
         ]
       : []),
-    { label: 'Quit git helper', role: 'quit' },
+    { label: 'Quit git tidy', role: 'quit' },
   ];
   tray.setContextMenu(Menu.buildFromTemplate(template));
 }
@@ -222,7 +222,7 @@ if (!app.requestSingleInstanceLock()) {
     const icon = nativeImage.createFromPath(ICON);
     icon.setTemplateImage(true);
     tray = new Tray(icon);
-    tray.setToolTip('git helper');
+    tray.setToolTip('git tidy');
     watchPromotions();
     showCountdown();
     await refreshMenu();

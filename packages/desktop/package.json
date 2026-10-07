@@ -1,6 +1,6 @@
 {
-  "name": "@git-helper/desktop",
-  "productName": "git helper",
+  "name": "@tidy/desktop",
+  "productName": "git tidy",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -12,8 +12,8 @@
     "smoke": "electron . --smoke"
   },
   "dependencies": {
-    "@git-helper/core": "workspace:*",
-    "@git-helper/server": "workspace:*"
+    "@tidy/core": "workspace:*",
+    "@tidy/server": "workspace:*"
   },
   "devDependencies": {
     "electron": "^44.4.5"

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { WorktreeDetails } from '@git-helper/core';
+import type { WorktreeDetails } from '@tidy/core';
 import { api, type RepoView } from '../api';
 import { PipelineEditor } from './PipelineEditor';
 

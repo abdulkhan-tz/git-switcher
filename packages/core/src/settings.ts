@@ -23,7 +23,7 @@ export function validInterval(sec: unknown): number {
   return n;
 }
 
-/** User settings shared by every git-helper process; re-read on use so changes apply everywhere. */
+/** User settings shared by every git-tidy process; re-read on use so changes apply everywhere. */
 export class SettingsStore {
   constructor(readonly file: string = join(configDir(), 'settings.json')) {}
 

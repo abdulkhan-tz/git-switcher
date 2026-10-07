@@ -3,7 +3,7 @@ import { mkdtempSync } from 'node:fs';
 import { request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { History, Registry } from '@git-helper/core';
+import { History, Registry } from '@tidy/core';
 import { startServer, type RunEvent, type RunningServer } from '../src/index.js';
 import { makeFixture, sh } from '../../core/test/fixture.js';
 
@@ -14,14 +14,14 @@ afterEach(async () => {
 });
 
 async function boot() {
-  const dir = mkdtempSync(join(tmpdir(), 'git-helper-srv-'));
+  const dir = mkdtempSync(join(tmpdir(), 'git-tidy-srv-'));
   const registry = new Registry(join(dir, 'repos.json'));
   running = await startServer({ registry, history: new History(join(dir, 'h.jsonl')), token: 'secret' });
   const base = `http://127.0.0.1:${running.port}`;
   const call = async (method: string, path: string, body?: unknown, token = 'secret') => {
     const res = await fetch(base + path, {
       method,
-      headers: { 'x-git-helper-token': token, 'content-type': 'application/json' },
+      headers: { 'x-git-tidy-token': token, 'content-type': 'application/json' },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
     return { status: res.status, body: (await res.json()) as any };
@@ -67,7 +67,7 @@ describe('server', () => {
   it('rejects requests whose Host is not localhost', async () => {
     await boot();
     const status = await new Promise<number>((ok) => {
-      request({ host: '127.0.0.1', port: running!.port, path: '/api/repos', headers: { host: 'evil.example', 'x-git-helper-token': 'secret' } }, (res) => ok(res.statusCode!)).end();
+      request({ host: '127.0.0.1', port: running!.port, path: '/api/repos', headers: { host: 'evil.example', 'x-git-tidy-token': 'secret' } }, (res) => ok(res.statusCode!)).end();
     });
     expect(status).toBe(403);
   });
@@ -136,15 +136,15 @@ describe('server', () => {
 
 describe('promotions API', () => {
   it('sets a pipeline, starts a promotion, and follows merges via tick; stop/resume', async () => {
-    const { PromotionStore, PromotionWorker } = await import('@git-helper/core');
+    const { PromotionStore, PromotionWorker } = await import('@tidy/core');
     const { FakeGitHub } = await import('../../core/test/fakeGithub.js');
-    const dir = mkdtempSync(join(tmpdir(), 'git-helper-srvp-'));
+    const dir = mkdtempSync(join(tmpdir(), 'git-tidy-srvp-'));
     const registry = new Registry(join(dir, 'repos.json'));
     const github = new FakeGitHub({ main: ['a'], qa: ['a'], develop: ['a', 'b'] });
     const worker = new PromotionWorker({ registry, github, store: new PromotionStore(join(dir, 'p.json')), lockFile: join(dir, 'lock') });
     running = await startServer({ registry, history: new History(join(dir, 'h.jsonl')), token: 't', worker, pollPromotions: false });
     const call = async (method: string, path: string, body?: unknown) => {
-      const res = await fetch(`http://127.0.0.1:${running!.port}${path}`, { method, headers: { 'x-git-helper-token': 't', 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+      const res = await fetch(`http://127.0.0.1:${running!.port}${path}`, { method, headers: { 'x-git-tidy-token': 't', 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
       return { status: res.status, body: (await res.json()) as any };
     };
     const fx = makeFixture();
@@ -181,16 +181,16 @@ describe('version', () => {
 
 describe('settings and deletion API', () => {
   it('sets the interval (1–60 s), deletes history and finished promotions', async () => {
-    const { PromotionStore, PromotionWorker, SettingsStore } = await import('@git-helper/core');
+    const { PromotionStore, PromotionWorker, SettingsStore } = await import('@tidy/core');
     const { FakeGitHub } = await import('../../core/test/fakeGithub.js');
-    const dir = mkdtempSync(join(tmpdir(), 'git-helper-srvs-'));
+    const dir = mkdtempSync(join(tmpdir(), 'git-tidy-srvs-'));
     const registry = new Registry(join(dir, 'repos.json'));
     const history = new History(join(dir, 'h.jsonl'));
     const github = new FakeGitHub({ main: ['a'], qa: ['a'], develop: ['a', 'b'] });
     const worker = new PromotionWorker({ registry, github, store: new PromotionStore(join(dir, 'p.json')), settings: new SettingsStore(join(dir, 's.json')), lockFile: join(dir, 'lock') });
     running = await startServer({ registry, history, token: 't', worker });
     const call = async (method: string, path: string, body?: unknown) => {
-      const res = await fetch(`http://127.0.0.1:${running!.port}${path}`, { method, headers: { 'x-git-helper-token': 't', 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+      const res = await fetch(`http://127.0.0.1:${running!.port}${path}`, { method, headers: { 'x-git-tidy-token': 't', 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
       return { status: res.status, body: (await res.json()) as any };
     };
     expect((await call('PUT', '/api/settings', { promotionIntervalSec: 0 })).status).toBe(400);
@@ -207,7 +207,7 @@ describe('settings and deletion API', () => {
     await call('POST', `/api/promotions/${p.id}/stop`);
     expect((await call('DELETE', '/api/promotions')).body.removed).toBe(1);
 
-    const { switchBranch } = await import('@git-helper/core');
+    const { switchBranch } = await import('@tidy/core');
     const e1 = history.append(await switchBranch(fx.work, 'feature', {}, async () => false));
     history.append(await switchBranch(fx.work, 'main', {}, async () => false));
     expect((await call('DELETE', `/api/history/${e1.runId}`)).body.removed).toBe(1);
@@ -220,7 +220,7 @@ describe('settings and deletion API', () => {
 describe('case repair API', () => {
   it('reports folded checkouts on the repo and repairs them', async () => {
     const { existsSync, writeFileSync, mkdtempSync: mk } = await import('node:fs');
-    const probe = mk(join(tmpdir(), 'git-helper-ci-'));
+    const probe = mk(join(tmpdir(), 'git-tidy-ci-'));
     writeFileSync(join(probe, 'a'), '');
     if (!existsSync(join(probe, 'A'))) return; // case-sensitive disk: nothing folds
     const { call } = await boot();
@@ -241,13 +241,13 @@ describe('case repair API', () => {
 
 describe('pausing checks via the API', () => {
   it('toggles promotion checks and reports paused', async () => {
-    const { PromotionStore, PromotionWorker, SettingsStore } = await import('@git-helper/core');
-    const dir = mkdtempSync(join(tmpdir(), 'git-helper-srvq-'));
+    const { PromotionStore, PromotionWorker, SettingsStore } = await import('@tidy/core');
+    const dir = mkdtempSync(join(tmpdir(), 'git-tidy-srvq-'));
     const registry = new Registry(join(dir, 'repos.json'));
     const worker = new PromotionWorker({ registry, store: new PromotionStore(join(dir, 'p.json')), settings: new SettingsStore(join(dir, 's.json')), lockFile: join(dir, 'lock') });
     running = await startServer({ registry, history: new History(join(dir, 'h.jsonl')), token: 't', worker });
     const call = async (method: string, path: string, body?: unknown) => {
-      const res = await fetch(`http://127.0.0.1:${running!.port}${path}`, { method, headers: { 'x-git-helper-token': 't', 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+      const res = await fetch(`http://127.0.0.1:${running!.port}${path}`, { method, headers: { 'x-git-tidy-token': 't', 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
       return { status: res.status, body: (await res.json()) as any };
     };
     const off = await call('PUT', '/api/settings', { promotionChecksEnabled: false });

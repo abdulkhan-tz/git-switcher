@@ -158,7 +158,7 @@ export class PromotionWorker {
     if (!this.owner) return;
     if (this.timer) clearTimeout(this.timer);
     // Paused: no GitHub calls, only a cheap look at settings now and then so switching checks back
-    // on (from any git-helper process) takes effect within seconds.
+    // on (from any git-tidy process) takes effect within seconds.
     const paused = this.paused;
     const ms = paused ? PAUSED_RECHECK_MS : this.intervalMs;
     this.nextCheckAt = paused ? null : new Date(this.now().getTime() + ms).toISOString();
@@ -173,7 +173,7 @@ export class PromotionWorker {
     this.timer.unref?.();
   }
 
-  /** Switches GitHub checks on or off for every git-helper process. */
+  /** Switches GitHub checks on or off for every git-tidy process. */
   setChecksEnabled(enabled: boolean): boolean {
     this.settings.update({ promotionChecksEnabled: enabled });
     this.schedule();

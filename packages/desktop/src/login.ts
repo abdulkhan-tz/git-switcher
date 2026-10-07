@@ -4,7 +4,7 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 
 /** Kept free of Electron imports so it can also be driven from a plain Node script. */
-export const LABEL = 'io.github.git-helper.tray';
+export const LABEL = 'io.github.git-tidy.tray';
 export const PLIST = join(homedir(), 'Library', 'LaunchAgents', `${LABEL}.plist`);
 
 const xml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -30,9 +30,9 @@ export function isLoginItem(): boolean {
 }
 
 /** Writes a LaunchAgent that starts the tray app at login and restarts it if it crashes (not when quit). */
-/** `appPath` is only for a development run (`electron <dir>`); a built git helper.app finds its own code. */
+/** `appPath` is only for a development run (`electron <dir>`); a built tidy.app finds its own code. */
 export function enableLoginItem(opts: { electron: string; appPath?: string; path: string; logFile?: string }): void {
-  const log = opts.logFile ?? join(homedir(), 'Library', 'Logs', 'git-helper.log');
+  const log = opts.logFile ?? join(homedir(), 'Library', 'Logs', 'git-tidy.log');
   const plist = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">

@@ -1,5 +1,5 @@
-import type { ServiceStatus, FoldedHead, Group, HistoryEntry, Promotion, RepoEntry, RepoState, Settings, WorkerStatus, WorktreeDetails } from '@git-helper/core';
-import type { RunEvent } from '@git-helper/server';
+import type { ServiceStatus, FoldedHead, Group, HistoryEntry, Promotion, RepoEntry, RepoState, Settings, WorkerStatus, WorktreeDetails } from '@tidy/core';
+import type { RunEvent } from '@tidy/server';
 
 export type { RunEvent };
 
@@ -15,7 +15,7 @@ export interface PromotionsView {
 export type RepoView = RepoEntry & { missing: boolean; state: RepoState | null; folded?: FoldedHead[]; error: string | null };
 
 // The token arrives once in the URL (?token=…); keep it for reloads, then drop it from the address bar.
-const TOKEN_KEY = 'git-helper-token';
+const TOKEN_KEY = 'git-tidy-token';
 function readToken(): string {
   const fromUrl = new URLSearchParams(location.search).get('token');
   try {
@@ -42,7 +42,7 @@ export class ApiError extends Error {
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(`/api${path}`, {
     method,
-    headers: { 'x-git-helper-token': token, ...(body !== undefined ? { 'content-type': 'application/json' } : {}) },
+    headers: { 'x-git-tidy-token': token, ...(body !== undefined ? { 'content-type': 'application/json' } : {}) },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const data = await res.json().catch(() => ({}));

@@ -5,17 +5,18 @@ import { join } from 'node:path';
 let migrated = false;
 
 /**
- * `$GIT_HELPER_HOME`, else `$XDG_CONFIG_HOME/git-helper`, else `~/.config/git-helper`.
- * The first call moves a config left by the tool's old name (`git-switcher`) into place.
+ * `$TIDY_HOME`, else `$XDG_CONFIG_HOME/tidy`, else `~/.config/tidy`.
+ * The first call moves a config left by an earlier name (`git-helper`, `git-switcher`) into place.
  */
 export function configDir(): string {
-  if (process.env.GIT_HELPER_HOME) return process.env.GIT_HELPER_HOME;
+  if (process.env.TIDY_HOME) return process.env.TIDY_HOME;
   const base = process.env.XDG_CONFIG_HOME || join(homedir(), '.config');
-  const dir = join(base, 'git-helper');
+  const dir = join(base, 'tidy');
   if (!migrated) {
     migrated = true;
-    const legacy = join(base, 'git-switcher');
-    if (!existsSync(dir) && existsSync(legacy)) {
+    // newest old name first
+    const legacy = ['git-helper', 'git-switcher'].map((n) => join(base, n)).find((p) => existsSync(p));
+    if (!existsSync(dir) && legacy) {
       try {
         renameSync(legacy, dir);
       } catch {

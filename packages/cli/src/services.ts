@@ -1,19 +1,19 @@
 import { readFileSync } from 'node:fs';
-import { ServiceError, ServiceManager, validateDef, type ServiceEvent, type ServiceState, type ServiceStatus } from '@git-helper/core';
+import { ServiceError, ServiceManager, validateDef, type ServiceEvent, type ServiceState, type ServiceStatus } from '@tidy/core';
 import { str, type ParsedArgs } from './args.js';
 import type { Out } from './io.js';
 
 class UsageError extends Error {}
 export { UsageError as ServicesUsageError };
 
-const SERVICES_USAGE = `git-helper services                         what is up and what is down
-git-helper services up [name…]              start in the background (dependencies first; none = all)
-git-helper services down [name…]            stop the ones git helper started (none = all)
-git-helper services restart <name…>
-git-helper services logs <name> [--lines n]
-git-helper services add <name> --cwd <dir> --command <cmd> --port <n> [--prepare <cmd>] [--depends a,b] [--description text]
-git-helper services import <file.json>      add or replace definitions from a file ({"services":[…]})
-git-helper services rm <name>`;
+const SERVICES_USAGE = `git-tidy services                         what is up and what is down
+git-tidy services up [name…]              start in the background (dependencies first; none = all)
+git-tidy services down [name…]            stop the ones git tidy started (none = all)
+git-tidy services restart <name…>
+git-tidy services logs <name> [--lines n]
+git-tidy services add <name> --cwd <dir> --command <cmd> --port <n> [--prepare <cmd>] [--depends a,b] [--description text]
+git-tidy services import <file.json>      add or replace definitions from a file ({"services":[…]})
+git-tidy services rm <name>`;
 
 const LABEL: Record<ServiceState, { text: string; paint: (o: Out) => (s: string) => string }> = {
   up: { text: '● up', paint: (o) => o.green },
@@ -24,7 +24,7 @@ const LABEL: Record<ServiceState, { text: string; paint: (o: Out) => (s: string)
 
 export function renderServices(out: Out, rows: ServiceStatus[]): void {
   if (rows.length === 0) {
-    out.line(out.dim('No services defined. Add one with: git-helper services add, or import a file.'));
+    out.line(out.dim('No services defined. Add one with: git-tidy services add, or import a file.'));
     return;
   }
   const width = Math.max(...rows.map((r) => r.name.length));
@@ -65,13 +65,13 @@ export async function servicesCommand(rest: string[], args: ParsedArgs, out: Out
         await manager.down(names, (e) => event(out, e));
         return 0;
       case 'restart': {
-        if (names.length === 0) throw new UsageError('git-helper services restart <name…>');
+        if (names.length === 0) throw new UsageError('git-tidy services restart <name…>');
         await manager.down(names, (e) => event(out, e));
         await manager.up(names, (e) => event(out, e));
         return 0;
       }
       case 'logs': {
-        if (!names[0]) throw new UsageError('git-helper services logs <name> [--lines n]');
+        if (!names[0]) throw new UsageError('git-tidy services logs <name> [--lines n]');
         const text = manager.tail(names[0], Number(str(args.flags, 'lines') ?? 50));
         out.line(text || out.dim('(no log yet)'));
         out.line(out.dim(manager.store.logFile(names[0])));
@@ -94,7 +94,7 @@ export async function servicesCommand(rest: string[], args: ParsedArgs, out: Out
         return 0;
       }
       case 'import': {
-        if (!names[0]) throw new UsageError('git-helper services import <file.json>');
+        if (!names[0]) throw new UsageError('git-tidy services import <file.json>');
         let parsed: { services?: unknown[] };
         try {
           parsed = JSON.parse(readFileSync(names[0], 'utf8')) as { services?: unknown[] };
@@ -107,7 +107,7 @@ export async function servicesCommand(rest: string[], args: ParsedArgs, out: Out
         return 0;
       }
       case 'rm': {
-        if (!names[0]) throw new UsageError('git-helper services rm <name>');
+        if (!names[0]) throw new UsageError('git-tidy services rm <name>');
         out.line(`Removed ${manager.store.remove(names[0]).name} (a running process is not stopped)`);
         return 0;
       }

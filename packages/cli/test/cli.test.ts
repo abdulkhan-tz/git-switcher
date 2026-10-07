@@ -3,7 +3,7 @@ import { PassThrough } from 'node:stream';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { History, Registry } from '@git-helper/core';
+import { History, Registry } from '@tidy/core';
 import { main } from '../src/main.js';
 import { parseArgs } from '../src/args.js';
 import { makeFixture, sh } from '../../core/test/fixture.js';
@@ -14,7 +14,7 @@ function run(argv: string[], cwd: string, input = '', deps?: { registry: Registr
   let text = '';
   stdout.on('data', (d) => (text += d));
   stdin.end(input);
-  const dir = mkdtempSync(join(tmpdir(), 'git-helper-cli-'));
+  const dir = mkdtempSync(join(tmpdir(), 'git-tidy-cli-'));
   const d = deps ?? { registry: new Registry(join(dir, 'repos.json')), history: new History(join(dir, 'history.jsonl')) };
   return main(argv, { stdin, stdout, cwd, color: false }, d).then((code) => ({ code, text, ...d }));
 }
@@ -28,7 +28,7 @@ describe('parseArgs', () => {
   });
 });
 
-describe('git-helper', () => {
+describe('git-tidy', () => {
   it('switches the current repo from a subdirectory and records history; exit 0', async () => {
     const fx = makeFixture();
     fx.write(fx.work, 'shared.txt', 'wip\n');
@@ -97,18 +97,18 @@ describe('git-helper', () => {
     expect((await run(['rm', 'web'], a.dir, '', deps)).code).toBe(1);
   });
 
-  it('`git-helper switch ls` switches to a branch literally named ls; no args prints usage with exit 1', async () => {
+  it('`git-tidy switch ls` switches to a branch literally named ls; no args prints usage with exit 1', async () => {
     const fx = makeFixture();
     fx.pushNewBranch('ls');
     expect((await run(['switch', 'ls'], fx.work)).code).toBe(0);
     const usage = await run([], fx.work);
     expect(usage.code).toBe(1);
-    expect(usage.text).toContain('git helper —');
+    expect(usage.text).toContain('git tidy —');
   });
 
   it('renames a branch stored with the wrong case when the remote has the exact name', async () => {
     const { existsSync, writeFileSync, mkdtempSync: mk } = await import('node:fs');
-    const probe = mk(join(tmpdir(), 'git-helper-ci-'));
+    const probe = mk(join(tmpdir(), 'git-tidy-ci-'));
     writeFileSync(join(probe, 'a'), '');
     if (!existsSync(join(probe, 'A'))) return; // case-sensitive disk: nothing folds
     const fx = makeFixture();

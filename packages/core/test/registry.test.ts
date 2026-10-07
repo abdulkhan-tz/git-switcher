@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { History, Registry, RegistryError, inspect, switchBranch } from '../src/index.js';
 import { makeFixture, scripted } from './fixture.js';
 
-const tempFile = (name: string) => join(mkdtempSync(join(tmpdir(), 'git-helper-reg-')), name);
+const tempFile = (name: string) => join(mkdtempSync(join(tmpdir(), 'git-tidy-reg-')), name);
 
 describe('Registry', () => {
   it('adds by any inner path, rejects duplicates, finds by name/id/path, removes from groups', async () => {

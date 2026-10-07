@@ -3,13 +3,13 @@ import { PassThrough } from 'node:stream';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { History, PromotionStore, PromotionWorker, Registry } from '@git-helper/core';
+import { History, PromotionStore, PromotionWorker, Registry } from '@tidy/core';
 import { main } from '../src/main.js';
 import { makeFixture } from '../../core/test/fixture.js';
 import { FakeGitHub } from '../../core/test/fakeGithub.js';
 
 async function setup() {
-  const dir = mkdtempSync(join(tmpdir(), 'git-helper-pcli-'));
+  const dir = mkdtempSync(join(tmpdir(), 'git-tidy-pcli-'));
   const registry = new Registry(join(dir, 'repos.json'));
   const history = new History(join(dir, 'h.jsonl'));
   const fx = makeFixture();

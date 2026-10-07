@@ -9,7 +9,7 @@ const MAX_LISTED_COMMITS = 30;
 
 export function createPromotion(repo: RepoEntry, opts: { from?: string; now?: Date } = {}): Promotion {
   const stages = repo.pipeline?.stages ?? [];
-  if (stages.length < 2) throw new PromotionError(`"${repo.name}" has no pipeline; set one with: git-helper pipeline set ${repo.name} <stage> <stage>…`);
+  if (stages.length < 2) throw new PromotionError(`"${repo.name}" has no pipeline; set one with: git-tidy pipeline set ${repo.name} <stage> <stage>…`);
   const start = opts.from ? stages.indexOf(opts.from) : 0;
   if (start === -1) throw new PromotionError(`"${opts.from}" is not a stage of ${repo.name} (${stages.join(' → ')})`);
   if (start >= stages.length - 1) throw new PromotionError(`"${opts.from}" is the last stage of ${repo.name}; nothing to promote into`);
@@ -36,7 +36,7 @@ export function createPromotion(repo: RepoEntry, opts: { from?: string; now?: Da
 function prBody(from: string, to: string, subjects: string[]): string {
   const listed = subjects.slice(-MAX_LISTED_COMMITS).map((s) => `- ${s}`);
   const more = subjects.length > MAX_LISTED_COMMITS ? [`- …and ${subjects.length - MAX_LISTED_COMMITS} earlier commit(s)`] : [];
-  return [`Promotes \`${from}\` into \`${to}\` (${subjects.length} commit(s)).`, '', ...more, ...listed, '', '_Opened by git helper._'].join('\n');
+  return [`Promotes \`${from}\` into \`${to}\` (${subjects.length} commit(s)).`, '', ...more, ...listed, '', '_Opened by git tidy._'].join('\n');
 }
 
 /**

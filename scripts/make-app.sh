@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds "git helper.app" into ~/Applications (or the directory given): a real app bundle — a
+# Builds "tidy.app" into ~/Applications (or the directory given): a real app bundle — a
 # copy-on-write clone of this checkout's Electron, renamed and re-iconed, whose app folder is a
 # link back to packages/desktop. What you click and what runs are the same app, so Keep in Dock,
 # Cmd+Q and clicking it again behave like any Mac app, and `pnpm build` applies without rebuilding
@@ -9,7 +9,7 @@ set -euo pipefail
 [ "$(uname)" = Darwin ] || { echo "macOS only" >&2; exit 1; }
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DEST_DIR="${1:-$HOME/Applications}"
-APP="$DEST_DIR/git helper.app"
+APP="$DEST_DIR/tidy.app"
 DESKTOP="$ROOT/packages/desktop"
 ELECTRON_APP="$(ls -d "$ROOT"/node_modules/.pnpm/electron@*/node_modules/electron/dist/Electron.app 2>/dev/null | head -1)"
 [ -n "$ELECTRON_APP" ] || { echo "Electron is not installed — run pnpm install first" >&2; exit 1; }
@@ -34,15 +34,15 @@ cp -cR "$ELECTRON_APP" "$APP" 2>/dev/null || cp -R "$ELECTRON_APP" "$APP"   # -c
 rm -f "$APP/Contents/Resources/default_app.asar"
 ln -s "$DESKTOP" "$APP/Contents/Resources/app"
 cp "$WORK/icon.icns" "$APP/Contents/Resources/electron.icns"
-plist CFBundleName "git helper"
-plist CFBundleDisplayName "git helper"
-plist CFBundleIdentifier io.github.git-helper
+plist CFBundleName "tidy"
+plist CFBundleDisplayName "tidy"
+plist CFBundleIdentifier io.github.git-tidy
 # Editing the bundle breaks Electron's signature; re-sign it ad hoc so macOS will launch it.
 codesign --force --deep --sign - "$APP" 2>/dev/null
 touch "$APP"
 
 # Point an existing "Start at login" item at the new bundle.
-if [ -f "$HOME/Library/LaunchAgents/io.github.git-helper.tray.plist" ]; then
+if [ -f "$HOME/Library/LaunchAgents/io.github.git-tidy.tray.plist" ]; then
   ( cd "$DESKTOP" && node --input-type=module -e "
     import { enableLoginItem, loginShellPath } from './dist/login.js';
     enableLoginItem({ electron: process.argv[1], path: loginShellPath() });" "$APP/Contents/MacOS/Electron" )

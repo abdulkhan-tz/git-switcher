@@ -53,7 +53,7 @@ export function ServicesPage() {
   if (rows.length === 0) {
     return (
       <div className="empty">
-        No services yet. Add them with <code>git-helper services add</code> or <code>git-helper services import &lt;file&gt;</code>.
+        No services yet. Add them with <code>git-tidy services add</code> or <code>git-tidy services import &lt;file&gt;</code>.
       </div>
     );
   }
@@ -110,7 +110,7 @@ export function ServicesPage() {
         </tbody>
       </table>
       {log && <pre className="notice" style={{ overflow: 'auto', maxHeight: 320, fontSize: 12, whiteSpace: 'pre-wrap' }}>{log.text}</pre>}
-      <p className="muted small">Starting a service also starts what it needs. Services started outside git helper are shown but never stopped from here.</p>
+      <p className="muted small">Starting a service also starts what it needs. Services started outside git tidy are shown but never stopped from here.</p>
     </div>
   );
 }

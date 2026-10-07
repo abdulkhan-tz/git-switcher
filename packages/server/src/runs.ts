@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { History, switchBranch, type PromptRequest, type RepoEntry, type RunResult, type StepEvent } from '@git-helper/core';
+import { History, switchBranch, type PromptRequest, type RepoEntry, type RunResult, type StepEvent } from '@tidy/core';
 
 export type RunEvent =
   | { type: 'step'; repoId: string; event: StepEvent }

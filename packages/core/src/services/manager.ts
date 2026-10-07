@@ -98,7 +98,7 @@ export class ServiceManager {
     for (const def of this.order(targets)) {
       const [st] = await this.status(def.name);
       if (st!.state === 'up' || st!.state === 'external') {
-        on({ type: 'skip', name: def.name, reason: st!.state === 'up' ? 'already running' : `already running outside git helper${st!.externalPid ? ` (pid ${st!.externalPid})` : ''}` });
+        on({ type: 'skip', name: def.name, reason: st!.state === 'up' ? 'already running' : `already running outside git tidy${st!.externalPid ? ` (pid ${st!.externalPid})` : ''}` });
         continue;
       }
       if (st!.state === 'starting') on({ type: 'skip', name: def.name, reason: 'already starting' });
@@ -166,7 +166,7 @@ export class ServiceManager {
       if (!rec || !isAlive(rec.pid)) {
         this.store.setRunning(def.name, null);
         const [st] = await this.status(def.name);
-        on({ type: 'skip', name: def.name, reason: st!.state === 'external' ? 'running outside git helper — stop it where you started it' : 'not running' });
+        on({ type: 'skip', name: def.name, reason: st!.state === 'external' ? 'running outside git tidy — stop it where you started it' : 'not running' });
         continue;
       }
       await this.kill(rec.pid);

@@ -1,4 +1,4 @@
-import { ServiceManager, History, PromotionError, Registry, RegistryError, SettingsError, repairCase, inspect, repoExists, repoRoot, switchBranch, type RunResult, type SwitchOptions } from '@git-helper/core';
+import { ServiceManager, History, PromotionError, Registry, RegistryError, SettingsError, repairCase, inspect, repoExists, repoRoot, switchBranch, type RunResult, type SwitchOptions } from '@tidy/core';
 import { parseArgs, str, type ParsedArgs } from './args.js';
 import { lineReader, makeOut, type Io, type Out } from './io.js';
 import { pipelineCommand, promoteCommand, promotionsCommand, PromoteUsageError, type PromoteDeps } from './promote.js';
@@ -7,38 +7,38 @@ import { renderEvent, renderHistory, renderResult, renderSummary, terminalPrompt
 
 export const VERSION = '0.1.0';
 
-const USAGE = `git helper — switch branches safely and promote them upstream. (alias: gsw)
+const USAGE = `git tidy — switch branches safely and promote them upstream. (alias: tidy)
 
 Switch  (stash → switch → pull → pop; stops at the first error, never loses work)
-  git-helper <branch>                        switch the current repo
-  git-helper <branch> --group <name>         switch every repo in a group
-  git-helper <branch> --repos a,b            switch the named registered repos
-  git-helper switch <branch> [...]           same, for branch names that clash with a command
+  git-tidy <branch>                        switch the current repo
+  git-tidy <branch> --group <name>         switch every repo in a group
+  git-tidy <branch> --repos a,b            switch the named registered repos
+  git-tidy switch <branch> [...]           same, for branch names that clash with a command
       --remote <name>                        remote to fetch/track (default: repo setting or origin)
       --base <ref>                           start point if the branch must be created
 
 Promote  (one PR per step; the next opens when you merge the previous one)
-  git-helper pipeline set <repo> <stage> <stage>… [--auto-merge develop:qa,qa:stage]
-  git-helper pipeline show [repo] | clear <repo>
-  git-helper promote <repo…> | --group <name> [--from <stage>] [--watch] [--poll <sec>]
-  git-helper promotions [stop <id> | resume <id> | rm <id> | clear]
-  git-helper promotions interval [1-60]      show or set how often GitHub is checked (seconds)
-  git-helper promotions checks [on|off]      pause or resume all promotion checks
+  git-tidy pipeline set <repo> <stage> <stage>… [--auto-merge develop:qa,qa:stage]
+  git-tidy pipeline show [repo] | clear <repo>
+  git-tidy promote <repo…> | --group <name> [--from <stage>] [--watch] [--poll <sec>]
+  git-tidy promotions [stop <id> | resume <id> | rm <id> | clear]
+  git-tidy promotions interval [1-60]      show or set how often GitHub is checked (seconds)
+  git-tidy promotions checks [on|off]      pause or resume all promotion checks
 
 Services  (run local dev processes in the background and see what is up)
-  git-helper services [up|down|restart|logs|add|import|rm] [name…]   (details: git-helper services help)
+  git-tidy services [up|down|restart|logs|add|import|rm] [name…]   (details: git-tidy services help)
 
 Repos
-  git-helper add [path] [--name n] [--base origin/develop] [--remote origin]
-  git-helper set <repo> [--name n] [--base ref] [--remote r]   ("" clears base/remote)
-  git-helper rm <repo>
-  git-helper ls                              registered repos with branch and state
-  git-helper repair [--group <name>]         fix checkouts whose branch macOS stored with the wrong case
-  git-helper group add <name> <repo...>      create or replace a group
-  git-helper group rm <name> | group ls
-  git-helper history [--repo <repo>] [--limit n]
-  git-helper history rm <run-id> | clear [--repo <repo>]
-  git-helper ui [--port n] [--no-open]       open the dashboard (also runs the promotion worker)
+  git-tidy add [path] [--name n] [--base origin/develop] [--remote origin]
+  git-tidy set <repo> [--name n] [--base ref] [--remote r]   ("" clears base/remote)
+  git-tidy rm <repo>
+  git-tidy ls                              registered repos with branch and state
+  git-tidy repair [--group <name>]         fix checkouts whose branch macOS stored with the wrong case
+  git-tidy group add <name> <repo...>      create or replace a group
+  git-tidy group rm <name> | group ls
+  git-tidy history [--repo <repo>] [--limit n]
+  git-tidy history rm <run-id> | clear [--repo <repo>]
+  git-tidy ui [--port n] [--no-open]       open the dashboard (also runs the promotion worker)
 
 Exit codes: 0 success, 1 any failure, 2 any cancelled switch.`;
 
@@ -64,7 +64,7 @@ export async function main(argv: string[], io: Io, deps: Deps = {}): Promise<num
 
     switch (command) {
       case 'switch':
-        if (!rest[0]) throw new UsageError('git-helper switch <branch>');
+        if (!rest[0]) throw new UsageError('git-tidy switch <branch>');
         return await runSwitch(rest[0], args, io, out, registry, history);
       case 'add': {
         const entry = await registry.add(rest[0] ?? io.cwd, { name: str(args.flags, 'name'), base: str(args.flags, 'base'), remote: str(args.flags, 'remote') });
@@ -72,13 +72,13 @@ export async function main(argv: string[], io: Io, deps: Deps = {}): Promise<num
         return 0;
       }
       case 'set': {
-        if (!rest[0]) throw new UsageError('git-helper set <repo> [--name n] [--base ref] [--remote r]');
+        if (!rest[0]) throw new UsageError('git-tidy set <repo> [--name n] [--base ref] [--remote r]');
         const entry = registry.update(rest[0], { name: str(args.flags, 'name'), base: str(args.flags, 'base'), remote: str(args.flags, 'remote') });
         out.line(`Updated ${out.bold(entry.name)}: base ${entry.base ?? '(remote default)'}, remote ${entry.remote ?? 'origin'}`);
         return 0;
       }
       case 'rm': {
-        if (!rest[0]) throw new UsageError('git-helper rm <repo>');
+        if (!rest[0]) throw new UsageError('git-tidy rm <repo>');
         const entry = registry.remove(rest[0]);
         out.line(`Removed ${entry.name} (files untouched)`);
         return 0;
@@ -93,7 +93,7 @@ export async function main(argv: string[], io: Io, deps: Deps = {}): Promise<num
         const repoRef = str(args.flags, 'repo');
         const repo = repoRef ? (registry.find(repoRef)?.path ?? repoRef) : undefined;
         if (rest[0] === 'rm') {
-          if (!rest[1]) throw new UsageError('git-helper history rm <run-id>');
+          if (!rest[1]) throw new UsageError('git-tidy history rm <run-id>');
           if (!history.remove(rest[1])) throw new UsageError(`no single history entry matches "${rest[1]}"`);
           out.line(`Deleted history entry ${rest[1]}`);
           return 0;
@@ -195,7 +195,7 @@ async function repair(args: ParsedArgs, io: Io, out: Out, registry: Registry): P
 async function list(out: Out, registry: Registry): Promise<number> {
   const repos = registry.list();
   if (repos.length === 0) {
-    out.line(out.dim('No repos registered. Add one with: git-helper add [path]'));
+    out.line(out.dim('No repos registered. Add one with: git-tidy add [path]'));
     return 0;
   }
   const width = Math.max(...repos.map((r) => r.name.length));
@@ -232,12 +232,12 @@ function group(rest: string[], out: Out, registry: Registry): number {
   const [sub, name, ...repos] = rest;
   switch (sub) {
     case 'add':
-      if (!name || repos.length === 0) throw new UsageError('git-helper group add <name> <repo...>');
+      if (!name || repos.length === 0) throw new UsageError('git-tidy group add <name> <repo...>');
       registry.setGroup(name, repos);
       out.line(`Group ${out.bold(name)}: ${registry.groupRepos(name).map((r) => r.name).join(', ')}`);
       return 0;
     case 'rm':
-      if (!name) throw new UsageError('git-helper group rm <name>');
+      if (!name) throw new UsageError('git-tidy group rm <name>');
       registry.removeGroup(name);
       out.line(`Removed group ${name}`);
       return 0;
@@ -246,6 +246,6 @@ function group(rest: string[], out: Out, registry: Registry): number {
       for (const g of registry.groups()) out.line(`${g.name}: ${registry.groupRepos(g.name).map((r) => r.name).join(', ')}`);
       return 0;
     default:
-      throw new UsageError('git-helper group add|rm|ls');
+      throw new UsageError('git-tidy group add|rm|ls');
   }
 }

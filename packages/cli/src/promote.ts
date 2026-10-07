@@ -1,4 +1,4 @@
-import { PromotionError, PromotionWorker, RegistryError, validInterval, type Promotion, type PromotionStep, type Registry } from '@git-helper/core';
+import { PromotionError, PromotionWorker, RegistryError, validInterval, type Promotion, type PromotionStep, type Registry } from '@tidy/core';
 import { str, type ParsedArgs } from './args.js';
 import type { Out } from './io.js';
 
@@ -44,14 +44,14 @@ export function pipelineCommand(rest: string[], args: ParsedArgs, out: Out, regi
   const [sub, repo, ...stages] = rest;
   switch (sub) {
     case 'set': {
-      if (!repo || stages.length < 2) throw new UsageError('git-helper pipeline set <repo> <stage> <stage>… [--auto-merge develop:qa,qa:stage]');
+      if (!repo || stages.length < 2) throw new UsageError('git-tidy pipeline set <repo> <stage> <stage>… [--auto-merge develop:qa,qa:stage]');
       const auto = str(args.flags, 'auto-merge');
       const entry = registry.setPipeline(repo, { stages, autoMerge: auto ? auto.split(',').map(toStepKey) : undefined });
       out.line(`${out.bold(entry.name)}: ${entry.pipeline!.stages.join(' → ')}${entry.pipeline!.autoMerge ? out.dim(`  auto-merge: ${entry.pipeline!.autoMerge.join(', ')}`) : ''}`);
       return 0;
     }
     case 'clear':
-      if (!repo) throw new UsageError('git-helper pipeline clear <repo>');
+      if (!repo) throw new UsageError('git-tidy pipeline clear <repo>');
       registry.setPipeline(repo, null);
       out.line(`Cleared pipeline for ${repo}`);
       return 0;
@@ -67,7 +67,7 @@ export function pipelineCommand(rest: string[], args: ParsedArgs, out: Out, regi
       return 0;
     }
     default:
-      throw new UsageError('git-helper pipeline set|show|clear');
+      throw new UsageError('git-tidy pipeline set|show|clear');
   }
 }
 
@@ -76,7 +76,7 @@ export async function promoteCommand(rest: string[], args: ParsedArgs, out: Out,
   const worker = deps.worker ?? new PromotionWorker({ registry: deps.registry, intervalMs: poll ? validInterval(poll) * 1000 : undefined });
   const group = str(args.flags, 'group');
   const refs = group ? deps.registry.groupRepos(group).filter((r) => r.pipeline).map((r) => r.name) : rest;
-  if (refs.length === 0) throw new UsageError(group ? `no repo in group "${group}" has a pipeline` : 'git-helper promote <repo…> | --group <name> [--from <stage>] [--watch]');
+  if (refs.length === 0) throw new UsageError(group ? `no repo in group "${group}" has a pipeline` : 'git-tidy promote <repo…> | --group <name> [--from <stage>] [--watch]');
 
   const started: Promotion[] = [];
   let failed = false;
@@ -94,7 +94,7 @@ export async function promoteCommand(rest: string[], args: ParsedArgs, out: Out,
   if (started.length === 0) return 1;
   if (!args.flags.watch) {
     out.line();
-    out.line(out.dim('Merge each PR on GitHub. The worker in `git-helper ui` / the tray app opens the next one,'));
+    out.line(out.dim('Merge each PR on GitHub. The worker in `git-tidy ui` / the tray app opens the next one,'));
     out.line(out.dim('or run with --watch to keep this terminal polling.'));
     return failed ? 1 : 0;
   }
@@ -106,7 +106,7 @@ async function watch(ids: string[], out: Out, worker: PromotionWorker, deps: Pro
   const owner = worker.start();
   out.line();
   if (owner) out.line(out.dim(`Watching — polling GitHub every ${Math.round(worker.intervalMs / 1000)}s. Ctrl-C stops watching (promotions keep their state).`));
-  else out.line(out.dim(`Another git-helper process (pid ${worker.lockHolder()}) is polling; showing its progress. Ctrl-C to exit.`));
+  else out.line(out.dim(`Another git-tidy process (pid ${worker.lockHolder()}) is polling; showing its progress. Ctrl-C to exit.`));
   const seen = new Map<string, string>(ids.map((id) => [id, worker.store.get(id)!.updatedAt]));
   let stop = false;
   void deps.interrupt?.().then(() => (stop = true));
@@ -133,12 +133,12 @@ export async function promotionsCommand(rest: string[], out: Out, deps: PromoteD
   const [sub, id] = rest;
   if (sub === 'checks') {
     if (id !== undefined) {
-      if (id !== 'on' && id !== 'off') throw new UsageError('git-helper promotions checks [on|off]');
+      if (id !== 'on' && id !== 'off') throw new UsageError('git-tidy promotions checks [on|off]');
       worker.setChecksEnabled(id === 'on');
     }
     out.line(
       worker.paused
-        ? `Promotion checks are ${out.yellow('off')} — no GitHub calls; running promotions wait. Turn on with: git-helper promotions checks on`
+        ? `Promotion checks are ${out.yellow('off')} — no GitHub calls; running promotions wait. Turn on with: git-tidy promotions checks on`
         : `Promotion checks are ${out.green('on')}, every ${Math.round(worker.intervalMs / 1000)}s.`,
     );
     return 0;
@@ -149,7 +149,7 @@ export async function promotionsCommand(rest: string[], out: Out, deps: PromoteD
     return 0;
   }
   if (sub === 'rm') {
-    if (!id) throw new UsageError('git-helper promotions rm <id>');
+    if (!id) throw new UsageError('git-tidy promotions rm <id>');
     const p = worker.deletePromotion(id);
     out.line(`Deleted promotion ${p.id} (${p.repoName}); its PRs on GitHub are untouched.`);
     return 0;
@@ -159,24 +159,24 @@ export async function promotionsCommand(rest: string[], out: Out, deps: PromoteD
     return 0;
   }
   if (sub === 'stop' || sub === 'resume') {
-    if (!id) throw new UsageError(`git-helper promotions ${sub} <id>`);
+    if (!id) throw new UsageError(`git-tidy promotions ${sub} <id>`);
     const p = sub === 'stop' ? worker.stopPromotion(id) : await worker.resumePromotion(id);
     renderPromotion(out, p);
     return 0;
   }
-  if (sub !== undefined && sub !== 'ls') throw new UsageError('git-helper promotions [ls | stop <id> | resume <id> | rm <id> | clear | interval [1-60] | checks [on|off]]');
+  if (sub !== undefined && sub !== 'ls') throw new UsageError('git-tidy promotions [ls | stop <id> | resume <id> | rm <id> | clear | interval [1-60] | checks [on|off]]');
   const list = worker.store.list().slice(0, 20);
-  if (list.length === 0) out.line(out.dim('No promotions yet. Start one with: git-helper promote <repo>'));
+  if (list.length === 0) out.line(out.dim('No promotions yet. Start one with: git-tidy promote <repo>'));
   list.forEach((p, i) => {
     if (i) out.line();
     renderPromotion(out, p);
   });
   const st = worker.status();
   out.line();
-  if (st.paused) out.line(out.yellow('Promotion checks are off — turn on with: git-helper promotions checks on'));
+  if (st.paused) out.line(out.yellow('Promotion checks are off — turn on with: git-tidy promotions checks on'));
   else if (st.holder) {
     const secs = st.nextCheckAt ? Math.max(0, Math.round((new Date(st.nextCheckAt).getTime() - Date.now()) / 1000)) : null;
     out.line(out.dim(`Worker running (pid ${st.holder}), checking every ${Math.round(st.intervalMs / 1000)}s${secs !== null ? ` — next check in ${secs}s` : ''}.`));
-  } else out.line(out.dim('No worker running — start `git-helper ui`, the tray app, or `git-helper promote … --watch`.'));
+  } else out.line(out.dim('No worker running — start `git-tidy ui`, the tray app, or `git-tidy promote … --watch`.'));
   return 0;
 }
