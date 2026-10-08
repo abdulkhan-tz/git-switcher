@@ -90,7 +90,7 @@ git tidy services group rename dev backend
 git tidy services branch api                # the branch it runs on (and how many it could switch to)
 git tidy services switch api feature/login  # stop it, switch its checkout, start it again
 git tidy services up dev                    # start the whole group, top to bottom
-git tidy services logs api --lines 100    # logs live in ~/.config/git-tidy/logs/
+git tidy services logs api --lines 100    # logs live in ~/.config/tidy/logs/
 git tidy services add api --cwd ~/code/api --port 8080 \
     --prepare 'mvn -q -DskipTests package' \
     --command 'exec java -jar target/api.jar' --depends db
@@ -142,7 +142,7 @@ scripts/demo.sh             # switching, with real temporary git repos
 pnpm demo:promotions        # promotions, against an in-memory GitHub that merges PRs itself
 ```
 
-Registry, history and promotions live in `~/.config/git-tidy/` (`$XDG_CONFIG_HOME` and
+Registry, history and promotions live in `~/.config/tidy/` (`$XDG_CONFIG_HOME` and
 `$TIDY_HOME` are honoured).
 
 ## Packages
