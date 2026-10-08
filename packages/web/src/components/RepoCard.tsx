@@ -1,22 +1,53 @@
 import { useEffect, useState, type MouseEvent } from 'react';
 import type { WorktreeDetails } from '@tidy/core';
-import { api, type RepoView } from '../api';
+import { api, type RepoView, type ServiceView } from '../api';
 import { PipelineEditor } from './PipelineEditor';
+import { toast } from './Toast';
 
 interface Props {
   repo: RepoView;
   selected: boolean;
   busy: boolean;
+  /** Services that run from this repo's folder, so the row can restart them. */
+  services: ServiceView[];
   onToggle(): void;
+  onSwitch(branch: string): void;
   onChanged(): void;
   onError(message: string): void;
 }
 
-export function RepoCard({ repo, selected, busy, onToggle, onChanged, onError }: Props) {
+export function RepoCard({ repo, selected, busy, services, onToggle, onSwitch, onChanged, onError }: Props) {
   const [worktrees, setWorktrees] = useState<WorktreeDetails[] | null>(null);
   const [editing, setEditing] = useState(false);
   const [editingPipeline, setEditingPipeline] = useState(false);
   const [base, setBase] = useState(repo.base ?? '');
+  const [switching, setSwitching] = useState(false);
+  const [branches, setBranches] = useState<string[]>([]);
+  const [choice, setChoice] = useState('');
+  const svcBusy = services.some((x) => x.job);
+  const svcNames = services.map((x) => x.name);
+
+  const openSwitch = () => {
+    setSwitching(true);
+    void api.repoBranches(repo.id).then((r) => setBranches(r.branches), (e: Error) => onError(e.message));
+  };
+  const submitSwitch = () => {
+    const b = choice.trim();
+    if (!b || b === repo.state?.branch) return;
+    onSwitch(b);
+    setSwitching(false);
+    setChoice('');
+  };
+  const restartApp = async () => {
+    if (!confirm(`Restart ${svcNames.join(', ')}? It is stopped (with anything that needs it) and started again from ${repo.path}.`)) return;
+    try {
+      await api.servicesRestart(svcNames);
+      toast(`Restarting ${svcNames.join(', ')}…`);
+      onChanged();
+    } catch (e) {
+      onError((e as Error).message);
+    }
+  };
   const s = repo.state;
   const others = s ? s.worktrees.length - 1 : 0;
 
@@ -107,6 +138,12 @@ export function RepoCard({ repo, selected, busy, onToggle, onChanged, onError }:
           </button>
         </div>
         <div className="repo-actions">
+          <button className="small" disabled={!selectable} onClick={() => (switching ? setSwitching(false) : openSwitch())}>Switch branch</button>
+          {services.length > 0 && (
+            <button className="small" disabled={svcBusy} onClick={() => void restartApp()} title={`Restart ${svcNames.join(', ')}`}>
+              {svcBusy ? 'Restarting…' : 'Restart app'}
+            </button>
+          )}
           {others > 0 && (
             <button className="link" onClick={toggleWorktrees}>
               {others} worktree{others === 1 ? '' : 's'} {worktrees ? '▴' : '▾'}
@@ -116,6 +153,14 @@ export function RepoCard({ repo, selected, busy, onToggle, onChanged, onError }:
         </div>
       </div>
 
+      {switching && (
+        <form className="inline-edit switch-inline" onSubmit={(e) => { e.preventDefault(); submitSwitch(); }}>
+          <input list={`rb-${repo.id}`} value={choice} onChange={(e) => setChoice(e.target.value)} placeholder="branch to switch to…" aria-label="Branch to switch to" autoFocus style={{ flex: 1, fontFamily: 'var(--mono)' }} />
+          <datalist id={`rb-${repo.id}`}>{branches.map((b) => <option key={b} value={b} />)}</datalist>
+          <button type="submit" className="primary small" disabled={!choice.trim() || choice.trim() === repo.state?.branch}>Switch</button>
+          <button type="button" className="ghost small" onClick={() => setSwitching(false)}>Cancel</button>
+        </form>
+      )}
       {repo.folded && repo.folded.length > 0 && (
         <div className="notice error small" role="alert">
           {repo.folded.length} checkout(s) on a branch macOS stored with the wrong case

@@ -83,7 +83,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
   const busy = new Set<string>();
   const services = opts.services ?? new ServiceManager();
   /** Starting a service can take minutes, so the API answers at once; a failure is shown on the next poll. */
-  const serviceJobs = new Map<string, { action: 'starting' | 'stopping' | 'switching'; error?: string }>();
+  const serviceJobs = new Map<string, { action: 'starting' | 'stopping' | 'switching' | 'restarting'; error?: string }>();
 
   const json = (res: ServerResponse, status: number, body: unknown) => {
     res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
@@ -146,6 +146,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
         });
         return json(res, 200, { repaired, repo: await repoView(entry) });
       }
+      if (id && sub === 'branches' && method === 'GET') return json(res, 200, await listBranches(repoOr404(id).path));
       if (id && sub === 'worktrees' && method === 'GET') {
         const entry = repoOr404(id);
         const wts = await listWorktrees(entry.path);
@@ -304,6 +305,27 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
           });
         return json(res, 202, { ok: true });
       }
+    }
+
+    if (resource === 'services' && id === 'restart' && !sub && method === 'POST') {
+      // POST /services/restart {names}: stop them (and what needs them), then start back what was running, plus the named ones
+      const b = await readBody(req);
+      const names = Array.isArray(b.names) ? b.names.map(String) : [];
+      if (!names.length) throw new HttpError(400, 'names is required');
+      const targets = services.resolve(names);
+      for (const n of targets) {
+        if (serviceJobs.get(n) && !serviceJobs.get(n)!.error) throw new HttpError(409, `${n} is already ${serviceJobs.get(n)!.action}`);
+      }
+      for (const n of targets) serviceJobs.set(n, { action: 'restarting' });
+      void services
+        .restart(targets)
+        .catch((e: Error) => {
+          for (const n of targets) if (serviceJobs.has(n)) serviceJobs.set(n, { action: 'restarting', error: e.message });
+        })
+        .finally(() => {
+          for (const n of targets) if (!serviceJobs.get(n)?.error) serviceJobs.delete(n);
+        });
+      return json(res, 202, { ok: true });
     }
 
     if (resource === 'version' && method === 'GET') return json(res, 200, { stale: isStale() });

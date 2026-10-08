@@ -1,7 +1,7 @@
 import { Skeleton } from '../components/Skeleton';
 import { useCallback, useEffect, useState } from 'react';
 import type { Group } from '@tidy/core';
-import { api, type RepoView } from '../api';
+import { api, type RepoView, type ServiceView } from '../api';
 import { AddRepo } from '../components/AddRepo';
 import { RepoCard } from '../components/RepoCard';
 import { RunPanel } from '../components/RunPanel';
@@ -13,10 +13,12 @@ export function ReposPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [run, setRun] = useState<{ runId: string; branch: string; repoIds: string[]; done: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [services, setServices] = useState<ServiceView[]>([]);
 
   const refresh = useCallback(async () => {
     try {
       const [r, g] = await Promise.all([api.repos(), api.groups()]);
+      api.services().then(setServices, () => {});
       setRepos(r);
       setGroups(g);
       setSelected((s) => new Set([...s].filter((id) => r.some((x) => x.id === id))));
@@ -55,9 +57,9 @@ export function ReposPage() {
       return next;
     });
 
-  const startSwitch = async (branch: string, base?: string) => {
+  const startSwitch = async (branch: string, base?: string, only?: string[]) => {
     // Keep registry order, which is also the order the server runs them in.
-    const repoIds = (repos ?? []).filter((r) => selected.has(r.id)).map((r) => r.id);
+    const repoIds = only ?? (repos ?? []).filter((r) => selected.has(r.id)).map((r) => r.id);
     try {
       setError(null);
       const { runId } = await api.startSwitch(repoIds, branch, base);
@@ -132,7 +134,9 @@ export function ReposPage() {
               repo={r}
               selected={selected.has(r.id)}
               busy={busyIds.has(r.id)}
+              services={services.filter((s) => s.cwd === r.path || s.cwd.startsWith(`${r.path}/`))}
               onToggle={() => toggle(r.id)}
+              onSwitch={(branch) => void startSwitch(branch, undefined, [r.id])}
               onChanged={() => void refresh()}
               onError={setError}
             />

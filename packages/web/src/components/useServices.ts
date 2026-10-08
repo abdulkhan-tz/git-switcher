@@ -8,6 +8,7 @@ const REFRESH_MS = 3000;
 export function badge(s: ServiceView): { cls: string; text: string } {
   if (s.job === 'starting' || s.state === 'starting') return { cls: 'warn', text: 'starting…' };
   if (s.job === 'switching') return { cls: 'warn', text: 'switching branch…' };
+  if (s.job === 'restarting') return { cls: 'warn', text: 'restarting…' };
   if (s.job === 'stopping') return { cls: 'warn', text: 'stopping…' };
   if (s.state === 'up') return { cls: 'ok', text: 'up' };
   if (s.state === 'external') return { cls: 'info', text: 'up — started elsewhere' };

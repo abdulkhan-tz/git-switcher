@@ -7,7 +7,7 @@ export type { Promotion };
 
 export type ServiceGitView = ServiceGit | { root: null };
 
-export type ServiceView = ServiceStatus & { job?: 'starting' | 'stopping' | 'switching'; error?: string };
+export type ServiceView = ServiceStatus & { job?: 'starting' | 'stopping' | 'switching' | 'restarting'; error?: string };
 
 export interface PromotionsView {
   promotions: Promotion[];
@@ -83,6 +83,8 @@ export const api = {
   clearHistory: () => call<{ removed: number }>('DELETE', '/history'),
   services: (fresh = false) => call<ServiceView[]>('GET', `/services${fresh ? '?fresh=1' : ''}`),
   servicesUp: (names: string[]) => call<{ ok: true }>('POST', '/services/up', { names }),
+  servicesRestart: (names: string[]) => call<{ ok: true }>('POST', '/services/restart', { names }),
+  repoBranches: (id: string) => call<{ current: string | null; branches: string[] }>('GET', `/repos/${enc(id)}/branches`),
   servicesDown: (names: string[], external = false) => call<{ ok: true }>('POST', '/services/down', { names, external }),
   serviceGroups: () => call<ServiceGroup[]>('GET', '/services/groups'),
   setServiceGroup: (name: string, members: string[]) => call<ServiceGroup>('PUT', `/services/groups/${enc(name)}`, { members }),
