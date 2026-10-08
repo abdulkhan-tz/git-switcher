@@ -81,7 +81,7 @@ export const api = {
   clearHistory: () => call<{ removed: number }>('DELETE', '/history'),
   services: () => call<ServiceView[]>('GET', '/services'),
   servicesUp: (names: string[]) => call<{ ok: true }>('POST', '/services/up', { names }),
-  servicesDown: (names: string[]) => call<{ ok: true }>('POST', '/services/down', { names }),
+  servicesDown: (names: string[], external = false) => call<{ ok: true }>('POST', '/services/down', { names, external }),
   serviceLog: (name: string) => call<{ log: string }>('GET', `/services/${enc(name)}/logs?lines=120`),
   groups: () => call<Group[]>('GET', '/groups'),
   setGroup: (name: string, repoIds: string[]) => call<Group>('PUT', `/groups/${enc(name)}`, { repoIds }),

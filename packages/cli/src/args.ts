@@ -3,7 +3,7 @@ export interface ParsedArgs {
   flags: Record<string, string | true>;
 }
 
-const BOOLEAN_FLAGS = new Set(['help', 'version', 'no-open']);
+const BOOLEAN_FLAGS = new Set(['help', 'version', 'no-open', 'external']);
 
 /** Minimal `--key value` / `--key=value` / `--flag` parser; `--` ends option parsing. */
 export function parseArgs(argv: string[]): ParsedArgs {

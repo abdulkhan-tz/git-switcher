@@ -45,7 +45,7 @@ function event(out: Out, e: ServiceEvent): void {
     case 'ready':
       return out.line(`${out.green('✓')} ${e.name}: up after ${e.seconds}s`);
     case 'stopped':
-      return out.line(`${out.green('✓')} ${e.name}: stopped`);
+      return out.line(`${out.green('✓')} ${e.name}: stopped${e.external ? out.dim(' (was started elsewhere)') : ''}`);
   }
 }
 
@@ -62,11 +62,11 @@ export async function servicesCommand(rest: string[], args: ParsedArgs, out: Out
         await manager.up(names, (e) => event(out, e));
         return 0;
       case 'down':
-        await manager.down(names, (e) => event(out, e));
+        await manager.down(names, (e) => event(out, e), { external: names.length > 0 || args.flags.external === true });
         return 0;
       case 'restart': {
         if (names.length === 0) throw new UsageError('git-tidy services restart <name…>');
-        await manager.down(names, (e) => event(out, e));
+        await manager.down(names, (e) => event(out, e), { external: true });
         await manager.up(names, (e) => event(out, e));
         return 0;
       }

@@ -36,6 +36,8 @@ export interface ServiceStatus {
   pid?: number;
   /** Pid found listening on the port when something else started it. */
   externalPid?: number;
+  /** What that process is, so a stop is never a blind kill. */
+  externalCommand?: string;
   startedAt?: string;
   logFile: string;
   dependsOn: string[];
@@ -46,4 +48,4 @@ export type ServiceEvent =
   | { type: 'prepare'; name: string }
   | { type: 'start'; name: string; pid: number; logFile: string }
   | { type: 'ready'; name: string; seconds: number }
-  | { type: 'stopped'; name: string };
+  | { type: 'stopped'; name: string; external?: boolean };

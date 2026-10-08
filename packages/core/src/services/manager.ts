@@ -43,6 +43,12 @@ function listeningPid(port: number): Promise<number | undefined> {
   });
 }
 
+function commandOf(pid: number): Promise<string | undefined> {
+  return new Promise((resolve) => {
+    execFile('ps', ['-o', 'command=', '-p', String(pid)], (err, stdout) => resolve(err ? undefined : String(stdout).trim().slice(0, 300) || undefined));
+  });
+}
+
 /** Runs `sh -c script`, appending its output to the log. Resolves with the exit code. */
 function runShell(def: ServiceDef, script: string, logFd: number): Promise<number> {
   return new Promise((resolve) => {
@@ -67,7 +73,10 @@ export class ServiceManager {
         const base = { name: d.name, description: d.description, port: d.port, logFile: this.store.logFile(d.name), dependsOn: d.dependsOn ?? [] };
         if (alive && open) return { ...base, state: 'up', pid: rec!.pid, startedAt: rec!.startedAt };
         if (alive) return { ...base, state: 'starting', pid: rec!.pid, startedAt: rec!.startedAt };
-        if (open) return { ...base, state: 'external', externalPid: await listeningPid(d.port) };
+        if (open) {
+          const externalPid = await listeningPid(d.port);
+          return { ...base, state: 'external', externalPid, externalCommand: externalPid ? await commandOf(externalPid) : undefined };
+        }
         return { ...base, state: 'down' };
       }),
     );
@@ -150,8 +159,12 @@ export class ServiceManager {
     throw new ServiceError(`${def.name} did not open port ${def.port} within ${def.startTimeoutSec ?? 120}s; it may still be starting — see ${this.store.logFile(def.name)}`);
   }
 
-  /** Stops services the helper started. Processes started elsewhere are never touched. Dependents go first. */
-  async down(names: string[], on: (e: ServiceEvent) => void = () => {}): Promise<void> {
+  /**
+   * Stops services and whatever depends on them, dependents first. Always stops what the helper
+   * started. With `external`, also stops a process something else started (an IDE, a terminal) —
+   * only the one process listening on the service's port, never its parent or process group.
+   */
+  async down(names: string[], on: (e: ServiceEvent) => void = () => {}, opts: { external?: boolean } = {}): Promise<void> {
     const all = this.store.list();
     const wanted = new Set(names.length ? names : all.map((s) => s.name));
     for (const n of wanted) this.store.get(n);
@@ -163,22 +176,28 @@ export class ServiceManager {
     const stopOrder = this.order([...wanted]).reverse();
     for (const def of stopOrder) {
       const rec = this.store.running()[def.name];
-      if (!rec || !isAlive(rec.pid)) {
+      if (rec && isAlive(rec.pid)) {
+        await this.kill(rec.pid, true);
         this.store.setRunning(def.name, null);
-        const [st] = await this.status(def.name);
-        on({ type: 'skip', name: def.name, reason: st!.state === 'external' ? 'running outside git tidy — stop it where you started it' : 'not running' });
+        on({ type: 'stopped', name: def.name });
         continue;
       }
-      await this.kill(rec.pid);
       this.store.setRunning(def.name, null);
-      on({ type: 'stopped', name: def.name });
+      const [st] = await this.status(def.name);
+      if (st!.state === 'external' && opts.external && st!.externalPid) {
+        await this.kill(st!.externalPid, false);
+        on({ type: 'stopped', name: def.name, external: true });
+      } else {
+        on({ type: 'skip', name: def.name, reason: st!.state === 'external' ? `running outside tidy (pid ${st!.externalPid}) — stop it explicitly: services down ${def.name}` : 'not running' });
+      }
     }
   }
 
-  private async kill(pid: number): Promise<void> {
+  /** `group`: signal the whole process group (ours: sh/mvn wrappers and the JVM). Otherwise only `pid`. */
+  private async kill(pid: number, group: boolean): Promise<void> {
     const signal = (sig: NodeJS.Signals) => {
       try {
-        process.kill(-pid, sig); // the whole group: mvn/sh wrappers and the JVM
+        process.kill(group ? -pid : pid, sig);
       } catch {
         try {
           process.kill(pid, sig);

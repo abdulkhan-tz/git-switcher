@@ -80,7 +80,7 @@ polls at a time.
 ```bash
 git tidy services                         # what is up and what is down
 git tidy services up [name…]              # start in the background, dependencies first (none = all)
-git tidy services down [name…]            # stop what git tidy started (and what depends on it)
+git tidy services down [name…]            # stop named services (even ones started elsewhere) and what depends on them
 git tidy services restart api
 git tidy services logs api --lines 100    # logs live in ~/.config/git-tidy/logs/
 git tidy services add api --cwd ~/code/api --port 8080 \
@@ -92,8 +92,9 @@ git tidy services import services.json    # {"services":[{ name, cwd, command, p
 A service is a shell `command` (end it with `exec` so the tracked process is the service itself),
 an optional `prepare` step (a build; if it fails nothing starts), the TCP `port` it listens on,
 optional `env`, `dependsOn` and `startTimeoutSec`. "Up" means the port is open, so a service
-started by an IDE or another terminal shows as *up (elsewhere)*: it is never started twice and
-never stopped by git tidy. Definitions live in `services.json` in the config directory. The
+started by an IDE or another terminal shows as *up (elsewhere)*: it is never started twice.
+`down` with no names leaves it alone; `down <name>` (or the dashboard's Stop, which asks first)
+ends only the one process listening on that port, after which `up` runs it under tidy. Definitions live in `services.json` in the config directory. The
 dashboard has a Services tab with Start / Stop / Log per service.
 
 ## Dashboard and tray app

@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { spawn } from 'node:child_process';
 import { createServer } from 'node:net';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ServiceError, ServiceManager, ServiceStore, validateDef, type ServiceDef, type ServiceEvent } from '../src/index.js';
+import { ServiceError, ServiceManager, ServiceStore, portOpen, validateDef, type ServiceDef, type ServiceEvent } from '../src/index.js';
 
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -48,21 +49,32 @@ describe('services', () => {
     expect((await manager.status()).map((s) => s.state)).toEqual(['down', 'down']);
   }, 30_000);
 
-  it('skips a service that something else already started and never stops it', async () => {
+  it('leaves a service something else started alone unless told to stop it, then can take it over', async () => {
     const { manager } = setup();
     const port = await freePort();
-    const outside = createServer().listen(port, '127.0.0.1');
-    cleanup.push(() => new Promise((ok) => outside.close(() => ok())));
+    // started "elsewhere": a separate process in its own group, as an IDE or terminal would
+    const outside = spawn('node', ['-e', `require('net').createServer().listen(${port}, '127.0.0.1')`], { detached: true, stdio: 'ignore' });
+    cleanup.push(async () => void outside.kill());
     manager.store.put(listener('web', port));
+    for (let i = 0; i < 40 && !(await portOpen(port)); i++) await new Promise((r) => setTimeout(r, 100));
 
     const events: ServiceEvent[] = [];
     await manager.up([], (e) => events.push(e));
     expect(events).toEqual([expect.objectContaining({ type: 'skip', name: 'web' })]);
+    const [st] = await manager.status('web');
+    expect(st).toMatchObject({ state: 'external', externalPid: outside.pid });
+    expect(st!.externalCommand).toContain('node');
+
+    await manager.down([], (e) => events.push(e)); // no opt-in: untouched
     expect((await manager.status('web'))[0]!.state).toBe('external');
 
-    await manager.down([], (e) => events.push(e));
-    expect(await manager.status('web').then((s) => s[0]!.state)).toBe('external');
-  });
+    await manager.down(['web'], (e) => events.push(e), { external: true });
+    expect(events.at(-1)).toEqual({ type: 'stopped', name: 'web', external: true });
+    expect((await manager.status('web'))[0]!.state).toBe('down');
+
+    await manager.up(['web']); // now owned by the manager
+    expect((await manager.status('web'))[0]!.state).toBe('up');
+  }, 30_000);
 
   it('fails clearly when the process exits before opening its port, or prepare fails', async () => {
     const { manager } = setup();

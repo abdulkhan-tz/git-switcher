@@ -86,6 +86,7 @@ export function ServicesPage() {
             const b = badge(r);
             const canStart = r.state === 'down' && !r.job;
             const canStop = (r.state === 'up' || r.state === 'starting') && !r.job;
+            const canStopExternal = r.state === 'external' && !r.job && !!r.externalPid;
             return (
               <tr key={r.name}>
                 <td>
@@ -95,13 +96,27 @@ export function ServicesPage() {
                 </td>
                 <td>
                   <span className={`badge ${b.cls}`}>{b.text}</span>
-                  {r.state === 'external' && r.externalPid && <div className="muted small">pid {r.externalPid} — stop it where you started it</div>}
+                  {r.state === 'external' && r.externalPid && (
+                    <div className="muted small" title={r.externalCommand}>
+                      pid {r.externalPid} · {(r.externalCommand?.split(' ')[0] ?? '').split('/').pop()} — started outside tidy
+                    </div>
+                  )}
                 </td>
                 <td className="path">:{r.port}</td>
                 <td className="muted small">{r.dependsOn.join(', ') || '—'}</td>
                 <td className="row-actions">
                   {canStart && <button className="small" onClick={() => act(() => api.servicesUp([r.name]))}>Start</button>}
                   {canStop && <button className="ghost small" onClick={() => act(() => api.servicesDown([r.name]))}>Stop</button>}
+                  {canStopExternal && (
+                    <button
+                      className="ghost small"
+                      onClick={() => {
+                        if (confirm(`Stop ${r.name}? This ends pid ${r.externalPid}, which was started outside tidy:\n\n${r.externalCommand ?? ''}\n\nStart will then run it under tidy.`)) void act(() => api.servicesDown([r.name], true));
+                      }}
+                    >
+                      Stop
+                    </button>
+                  )}
                   <button className="link small" onClick={() => void showLog(r.name)}>{log?.name === r.name ? 'Hide log' : 'Log'}</button>
                 </td>
               </tr>
@@ -110,7 +125,7 @@ export function ServicesPage() {
         </tbody>
       </table>
       {log && <pre className="notice" style={{ overflow: 'auto', maxHeight: 320, fontSize: 12, whiteSpace: 'pre-wrap' }}>{log.text}</pre>}
-      <p className="muted small">Starting a service also starts what it needs. Services started outside git tidy are shown but never stopped from here.</p>
+      <p className="muted small">Starting a service also starts what it needs. Stop on a service started elsewhere ends only the process listening on its port; Start then runs it under tidy.</p>
     </div>
   );
 }

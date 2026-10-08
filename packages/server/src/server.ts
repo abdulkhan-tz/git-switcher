@@ -221,7 +221,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
         }
         const involved = id === 'up' ? services.order(targets).map((d) => d.name) : targets;
         for (const n of involved) serviceJobs.set(n, { action });
-        void (id === 'up' ? services.up(targets) : services.down(targets))
+        void (id === 'up' ? services.up(targets) : services.down(targets, undefined, { external: b.external === true }))
           .catch((e: Error) => {
             for (const n of involved) if (serviceJobs.has(n)) serviceJobs.set(n, { action, error: e.message });
           })
