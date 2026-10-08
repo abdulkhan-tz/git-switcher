@@ -70,7 +70,7 @@ export class ServiceManager {
         const alive = rec ? isAlive(rec.pid) : false;
         if (rec && !alive) this.store.setRunning(d.name, null); // stale record: the process is gone
         const open = await portOpen(d.port);
-        const base = { name: d.name, description: d.description, port: d.port, logFile: this.store.logFile(d.name), dependsOn: d.dependsOn ?? [] };
+        const base = { name: d.name, description: d.description, port: d.port, cwd: d.cwd, command: d.command, prepare: d.prepare, env: d.env, startTimeoutSec: d.startTimeoutSec, logFile: this.store.logFile(d.name), dependsOn: d.dependsOn ?? [] };
         if (alive && open) return { ...base, state: 'up', pid: rec!.pid, startedAt: rec!.startedAt };
         if (alive) return { ...base, state: 'starting', pid: rec!.pid, startedAt: rec!.startedAt };
         if (open) {
@@ -82,7 +82,22 @@ export class ServiceManager {
     );
   }
 
-  /** `names` plus everything they depend on, dependencies first. */
+  /** Expands group names into their members, in sequence. Plain service names pass through. */
+  resolve(names: string[]): string[] {
+    const groups = this.store.groups();
+    const out: string[] = [];
+    for (const n of names) {
+      const g = groups.find((x) => x.name === n);
+      if (g) out.push(...g.members);
+      else {
+        this.store.get(n);
+        out.push(n);
+      }
+    }
+    return [...new Set(out)];
+  }
+
+  /** `names` plus everything they depend on, dependencies first; otherwise in the order given. */
   order(names: string[]): ServiceDef[] {
     const out: ServiceDef[] = [];
     const seen = new Set<string>();
@@ -103,7 +118,7 @@ export class ServiceManager {
 
   /** Starts services (and their dependencies) in the background and waits until each one listens. */
   async up(names: string[], on: (e: ServiceEvent) => void = () => {}): Promise<void> {
-    const targets = names.length ? names : this.store.list().map((s) => s.name);
+    const targets = names.length ? this.resolve(names) : this.store.list().map((s) => s.name);
     for (const def of this.order(targets)) {
       const [st] = await this.status(def.name);
       if (st!.state === 'up' || st!.state === 'external') {
@@ -160,20 +175,41 @@ export class ServiceManager {
   }
 
   /**
+   * Stops the named services and what depends on them, then starts back everything that was
+   * actually stopped, in its original order. Dependencies of those services are left alone unless
+   * they are down.
+   */
+  async restart(names: string[], on: (e: ServiceEvent) => void = () => {}): Promise<void> {
+    const stopped: string[] = [];
+    await this.down(
+      names,
+      (e) => {
+        if (e.type === 'stopped') stopped.push(e.name);
+        on(e);
+      },
+      { external: true },
+    );
+    // a service that was not running is still started: restarting means "have it running afterwards"
+    const wanted = new Set([...this.resolve(names), ...stopped]);
+    const sequence = [...this.order([...wanted])].map((d) => d.name).filter((n) => wanted.has(n));
+    await this.up(sequence, on);
+  }
+
+  /**
    * Stops services and whatever depends on them, dependents first. Always stops what the helper
    * started. With `external`, also stops a process something else started (an IDE, a terminal) —
    * only the one process listening on the service's port, never its parent or process group.
    */
   async down(names: string[], on: (e: ServiceEvent) => void = () => {}, opts: { external?: boolean } = {}): Promise<void> {
     const all = this.store.list();
-    const wanted = new Set(names.length ? names : all.map((s) => s.name));
-    for (const n of wanted) this.store.get(n);
+    const wanted = new Set(names.length ? this.resolve(names) : all.map((s) => s.name));
     // also stop anything that depends on a service being stopped
     for (let grew = true; grew; ) {
       grew = false;
       for (const s of all) if (!wanted.has(s.name) && (s.dependsOn ?? []).some((d) => wanted.has(d))) wanted.add(s.name), (grew = true);
     }
-    const stopOrder = this.order([...wanted]).reverse();
+    // order() also lists each service's dependencies; those are not ours to stop, only what was asked for and its dependents
+    const stopOrder = this.order([...wanted]).filter((d) => wanted.has(d.name)).reverse();
     for (const def of stopOrder) {
       const rec = this.store.running()[def.name];
       if (rec && isAlive(rec.pid)) {

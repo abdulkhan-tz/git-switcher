@@ -79,9 +79,14 @@ polls at a time.
 
 ```bash
 git tidy services                         # what is up and what is down
-git tidy services up [name…]              # start in the background, dependencies first (none = all)
-git tidy services down [name…]            # stop named services (even ones started elsewhere) and what depends on them
-git tidy services restart api
+git tidy services show api                  # folder, command, build step, env, port, needs, log file
+git tidy services up [name|group…]          # start in the background, in the order given (none = all)
+git tidy services down [name|group…]        # stop named services (even ones started elsewhere) and what depends on them
+git tidy services restart api               # stops and starts it (and whatever depended on it), nothing else
+git tidy services rename api backend        # needs, groups and logs follow
+git tidy services set api --port 8081 --depends db --prepare ""   # edit; "" clears an optional field
+git tidy services group set dev db api web  # a group: start order = the order given
+git tidy services up dev                    # start the whole group, top to bottom
 git tidy services logs api --lines 100    # logs live in ~/.config/git-tidy/logs/
 git tidy services add api --cwd ~/code/api --port 8080 \
     --prepare 'mvn -q -DskipTests package' \
@@ -91,11 +96,13 @@ git tidy services import services.json    # {"services":[{ name, cwd, command, p
 
 A service is a shell `command` (end it with `exec` so the tracked process is the service itself),
 an optional `prepare` step (a build; if it fails nothing starts), the TCP `port` it listens on,
-optional `env`, `dependsOn` and `startTimeoutSec`. "Up" means the port is open, so a service
+optional `env`, `dependsOn` and `startTimeoutSec`. `up` starts a service's dependencies only if they are
+not already up, and never restarts one that is; `down` stops only what you name and its dependents. "Up" means the port is open, so a service
 started by an IDE or another terminal shows as *up (elsewhere)*: it is never started twice.
 `down` with no names leaves it alone; `down <name>` (or the dashboard's Stop, which asks first)
 ends only the one process listening on that port, after which `up` runs it under tidy. Definitions live in `services.json` in the config directory. The
-dashboard has a Services tab with Start / Stop / Log per service.
+dashboard has a Services tab: Start / Stop / Log per service, click a row to see and edit its
+configuration or rename it, and a Groups section to order and start/stop sets of services.
 
 ## Dashboard and tray app
 

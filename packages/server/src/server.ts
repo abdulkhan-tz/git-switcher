@@ -208,18 +208,53 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
         const rows = await services.status();
         return json(res, 200, rows.map((r) => ({ ...r, job: serviceJobs.get(r.name)?.action, error: r.state === 'up' ? undefined : serviceJobs.get(r.name)?.error })));
       }
+      if (id === 'groups') {
+        if (!sub && method === 'GET') return json(res, 200, services.store.groups());
+        if (sub && method === 'PUT') {
+          const b = await readBody(req);
+          if (!Array.isArray(b.members)) throw new HttpError(400, 'members must be an array');
+          return json(res, 200, services.store.setGroup(sub, b.members.map(String)));
+        }
+        if (sub && method === 'DELETE') return services.store.removeGroup(sub), json(res, 200, { ok: true });
+      }
+      if (id && sub === 'rename' && method === 'POST') {
+        const b = await readBody(req);
+        if (typeof b.to !== 'string') throw new HttpError(400, 'to is required');
+        if (serviceJobs.has(id)) throw new HttpError(409, `${id} is busy`);
+        return json(res, 200, services.store.rename(id, b.to.trim()));
+      }
+      if (id && !sub && method === 'PATCH') {
+        const b = await readBody(req);
+        const clearable = (v: unknown) => (v === null || v === '' ? null : v);
+        const patch = {
+          cwd: typeof b.cwd === 'string' ? b.cwd : undefined,
+          command: typeof b.command === 'string' ? b.command : undefined,
+          description: typeof b.description === 'string' ? b.description : undefined,
+          prepare: 'prepare' in b ? (clearable(b.prepare) as string | null) : undefined,
+          port: b.port === undefined ? undefined : Number(b.port),
+          startTimeoutSec: b.startTimeoutSec === undefined ? undefined : (clearable(b.startTimeoutSec === null || b.startTimeoutSec === '' ? null : Number(b.startTimeoutSec)) as number | null),
+          dependsOn: Array.isArray(b.dependsOn) ? b.dependsOn.map(String) : undefined,
+          env: b.env && typeof b.env === 'object' ? (b.env as Record<string, string>) : undefined,
+        };
+        services.store.update(id, patch);
+        return json(res, 200, services.store.get(id));
+      }
       if (id && sub === 'logs' && method === 'GET') return json(res, 200, { log: services.tail(id, Number(url.searchParams.get('lines') ?? 80)) });
       if ((id === 'up' || id === 'down') && !sub && method === 'POST') {
         // POST /services/up|down with {names: []} — an empty list means every service
         const b = await readBody(req);
         const names = Array.isArray(b.names) ? b.names.map(String) : [];
-        for (const n of names) services.store.get(n);
-        const targets = names.length ? names : services.store.list().map((s) => s.name);
+        const targets = names.length ? services.resolve(names) : services.store.list().map((s) => s.name);
         const action = id === 'up' ? 'starting' : 'stopping';
-        for (const n of targets) {
+        // Only what will really change is shown as busy: a dependency that is already up is left alone.
+        const states = new Map((await services.status()).map((r) => [r.name, r.state]));
+        const involved = (id === 'up' ? services.order(targets).map((d) => d.name) : targets).filter((n) => {
+          const st = states.get(n);
+          return id === 'up' ? st === 'down' : st === 'up' || st === 'starting' || (st === 'external' && b.external === true);
+        });
+        for (const n of involved) {
           if (serviceJobs.get(n) && !serviceJobs.get(n)!.error) throw new HttpError(409, `${n} is already ${serviceJobs.get(n)!.action}`);
         }
-        const involved = id === 'up' ? services.order(targets).map((d) => d.name) : targets;
         for (const n of involved) serviceJobs.set(n, { action });
         void (id === 'up' ? services.up(targets) : services.down(targets, undefined, { external: b.external === true }))
           .catch((e: Error) => {

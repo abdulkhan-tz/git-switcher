@@ -27,10 +27,23 @@ export type ServiceState =
   | 'starting'
   | 'down';
 
+/** An ordered set of services to start (and stop, in reverse) together. */
+export interface ServiceGroup {
+  name: string;
+  /** Start sequence. Each service's own `dependsOn` is still started before it. */
+  members: string[];
+}
+
 export interface ServiceStatus {
   name: string;
   description?: string;
   port: number;
+  /** The configuration the service runs with. */
+  cwd: string;
+  command: string;
+  prepare?: string;
+  env?: Record<string, string>;
+  startTimeoutSec?: number;
   state: ServiceState;
   /** Pid of the process the helper started, when it is still alive. */
   pid?: number;

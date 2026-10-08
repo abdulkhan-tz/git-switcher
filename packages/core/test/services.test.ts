@@ -95,7 +95,76 @@ describe('services', () => {
     manager.store.put(listener('a', 1, { dependsOn: ['b'] }));
     manager.store.put(listener('b', 2, { dependsOn: ['a'] }));
     expect(() => manager.order(['a'])).toThrow(/cycle/);
-    manager.store.remove('a');
-    manager.store.remove('b'); // the shared teardown stops everything, which a cycle would break
+    manager.store.update('a', { dependsOn: null });
+    manager.store.remove('b');
+    manager.store.remove('a'); // the shared teardown stops everything, which a cycle would break
+  });
+
+  it('leaves a dependency that is already up alone, and restart brings back what it stopped', async () => {
+    const { manager } = setup();
+    const [a, b] = [await freePort(), await freePort()];
+    manager.store.put(listener('db', a));
+    manager.store.put(listener('app', b, { dependsOn: ['db'] }));
+    await manager.up(['db']);
+    const dbPid = (await manager.status('db'))[0]!.pid;
+
+    const events: ServiceEvent[] = [];
+    await manager.up(['app'], (e) => events.push(e));
+    expect(events.filter((e) => e.type === 'start').map((e) => e.name)).toEqual(['app']); // db was not started again
+    expect((await manager.status('db'))[0]!.pid).toBe(dbPid);
+
+    await manager.restart(['app']); // restarting app must not touch its dependency
+    expect((await manager.status('db'))[0]!.pid).toBe(dbPid);
+
+    const appPid = (await manager.status('app'))[0]!.pid;
+    await manager.restart(['db']); // stops app too, so app has to come back
+    const after = await manager.status();
+    expect(after.map((x) => x.state)).toEqual(['up', 'up']);
+    expect(after[0]!.pid).not.toBe(dbPid);
+    expect(after[1]!.pid).not.toBe(appPid);
+  }, 60_000);
+
+  it('starts a group in its sequence, pulling in dependencies first', async () => {
+    const { manager } = setup();
+    const [a, b, c] = [await freePort(), await freePort(), await freePort()];
+    manager.store.put(listener('one', a));
+    manager.store.put(listener('two', b));
+    manager.store.put(listener('three', c, { dependsOn: ['one'] }));
+    manager.store.setGroup('stack', ['two', 'three']);
+
+    const ready: string[] = [];
+    await manager.up(['stack'], (e) => e.type === 'ready' && ready.push(e.name));
+    expect(ready).toEqual(['two', 'one', 'three']); // sequence, with three's dependency ahead of it
+
+    const stopped: string[] = [];
+    await manager.down(['stack'], (e) => e.type === 'stopped' && stopped.push(e.name));
+    expect(stopped).toEqual(['three', 'two']); // reverse, members only: 'one' was just a dependency
+    expect((await manager.status('one'))[0]!.state).toBe('up');
+  }, 60_000);
+
+  it('renames everywhere, edits fields, and guards group and service names', () => {
+    const { manager } = setup();
+    manager.store.put(listener('db', 1));
+    manager.store.put(listener('app', 2, { dependsOn: ['db'] }));
+    manager.store.setGroup('all-of-it', ['db', 'app']);
+
+    manager.store.rename('db', 'database');
+    expect(manager.store.get('app').dependsOn).toEqual(['database']);
+    expect(manager.store.groups()[0]!.members).toEqual(['database', 'app']);
+    expect(() => manager.store.rename('app', 'database')).toThrow(/already in use/);
+    expect(() => manager.store.rename('app', 'all-of-it')).toThrow(/already in use/);
+    expect(() => manager.store.rename('app', 'up')).toThrow(/reserved/);
+    expect(() => manager.store.setGroup('app', ['database'])).toThrow(/already a service/);
+    expect(() => manager.store.setGroup('g', ['nope'])).toThrow(/no such service/);
+    expect(() => manager.store.remove('database')).toThrow(/depends on database/);
+
+    manager.store.update('app', { prepare: 'true', startTimeoutSec: 30, port: 9 });
+    expect(manager.store.get('app')).toMatchObject({ prepare: 'true', startTimeoutSec: 30, port: 9 });
+    manager.store.update('app', { prepare: null, startTimeoutSec: null });
+    expect(manager.store.get('app').prepare).toBeUndefined();
+    expect(manager.store.get('app').startTimeoutSec).toBeUndefined();
+
+    manager.store.remove('app');
+    expect(manager.store.groups()[0]!.members).toEqual(['database']);
   });
 });

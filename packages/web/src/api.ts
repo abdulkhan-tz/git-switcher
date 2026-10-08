@@ -1,4 +1,4 @@
-import type { ServiceStatus, FoldedHead, Group, HistoryEntry, Promotion, RepoEntry, RepoState, Settings, WorkerStatus, WorktreeDetails } from '@tidy/core';
+import type { ServiceGroup, ServiceStatus, FoldedHead, Group, HistoryEntry, Promotion, RepoEntry, RepoState, Settings, WorkerStatus, WorktreeDetails } from '@tidy/core';
 import type { RunEvent } from '@tidy/server';
 
 export type { RunEvent };
@@ -82,6 +82,11 @@ export const api = {
   services: () => call<ServiceView[]>('GET', '/services'),
   servicesUp: (names: string[]) => call<{ ok: true }>('POST', '/services/up', { names }),
   servicesDown: (names: string[], external = false) => call<{ ok: true }>('POST', '/services/down', { names, external }),
+  serviceGroups: () => call<ServiceGroup[]>('GET', '/services/groups'),
+  setServiceGroup: (name: string, members: string[]) => call<ServiceGroup>('PUT', `/services/groups/${enc(name)}`, { members }),
+  removeServiceGroup: (name: string) => call<{ ok: true }>('DELETE', `/services/groups/${enc(name)}`),
+  renameService: (name: string, to: string) => call<unknown>('POST', `/services/${enc(name)}/rename`, { to }),
+  updateService: (name: string, patch: Record<string, unknown>) => call<unknown>('PATCH', `/services/${enc(name)}`, patch),
   serviceLog: (name: string) => call<{ log: string }>('GET', `/services/${enc(name)}/logs?lines=120`),
   groups: () => call<Group[]>('GET', '/groups'),
   setGroup: (name: string, repoIds: string[]) => call<Group>('PUT', `/groups/${enc(name)}`, { repoIds }),

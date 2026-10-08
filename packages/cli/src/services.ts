@@ -7,10 +7,16 @@ class UsageError extends Error {}
 export { UsageError as ServicesUsageError };
 
 const SERVICES_USAGE = `git-tidy services                         what is up and what is down
-git-tidy services up [name…]              start in the background (dependencies first; none = all)
-git-tidy services down [name…]            stop the ones git tidy started (none = all)
+git-tidy services show <name>               folder, command, build step, env, port, dependencies, log file
+git-tidy services up [name|group…]          start in the background, in the order given (each one's dependencies first; none = all)
+git-tidy services down [name|group…]            stop the ones git tidy started (none = all)
 git-tidy services restart <name…>
 git-tidy services logs <name> [--lines n]
+git-tidy services rename <name> <new-name>  (dependencies, groups and logs follow)
+git-tidy services set <name> [--cwd d] [--command c] [--prepare c|""] [--port n] [--depends a,b|""] [--description t] [--timeout sec]
+git-tidy services group                     list groups
+git-tidy services group set <group> <name…> create or replace a group; the order given is the start order
+git-tidy services group rm <group>
 git-tidy services add <name> --cwd <dir> --command <cmd> --port <n> [--prepare <cmd>] [--depends a,b] [--description text]
 git-tidy services import <file.json>      add or replace definitions from a file ({"services":[…]})
 git-tidy services rm <name>`;
@@ -21,6 +27,21 @@ const LABEL: Record<ServiceState, { text: string; paint: (o: Out) => (s: string)
   starting: { text: '◌ starting', paint: (o) => o.yellow },
   down: { text: '○ down', paint: (o) => o.dim },
 };
+
+export function renderShow(out: Out, r: ServiceStatus): void {
+  const row = (k: string, v: string | undefined) => v !== undefined && v !== '' && out.line(`  ${out.dim(k.padEnd(11))} ${v}`);
+  out.line(`${out.bold(r.name)}  ${LABEL[r.state].paint(out)(LABEL[r.state].text)}${r.pid ?? r.externalPid ? out.dim(`  pid ${r.pid ?? r.externalPid}`) : ''}`);
+  row('about', r.description);
+  row('folder', r.cwd);
+  row('port', String(r.port));
+  row('needs', r.dependsOn.join(', ') || undefined);
+  row('prepare', r.prepare);
+  row('command', r.command);
+  for (const [k, v] of Object.entries(r.env ?? {})) row(k === Object.keys(r.env!)[0] ? 'env' : '', `${k}=${v}`);
+  row('timeout', r.startTimeoutSec ? `${r.startTimeoutSec}s` : undefined);
+  row('log', r.logFile);
+  if (r.externalCommand) row('running as', r.externalCommand);
+}
 
 export function renderServices(out: Out, rows: ServiceStatus[]): void {
   if (rows.length === 0) {
@@ -57,7 +78,59 @@ export async function servicesCommand(rest: string[], args: ParsedArgs, out: Out
       case 'ls':
       case 'status':
         renderServices(out, await manager.status());
+        for (const g of manager.store.groups()) out.line(`${out.dim('group')} ${out.bold(g.name)}  ${g.members.join(out.dim(' → '))}`);
         return 0;
+      case 'show': {
+        if (!names[0]) throw new UsageError('git-tidy services show <name>');
+        renderShow(out, (await manager.status(names[0]))[0]!);
+        return 0;
+      }
+      case 'rename': {
+        if (!names[0] || !names[1]) throw new UsageError('git-tidy services rename <name> <new-name>');
+        manager.store.rename(names[0], names[1]);
+        out.line(`Renamed ${out.bold(names[0])} → ${out.bold(names[1])}`);
+        return 0;
+      }
+      case 'set': {
+        if (!names[0]) throw new UsageError('git-tidy services set <name> [--cwd d] [--command c] …');
+        const f = args.flags;
+        const text = (k: string) => (typeof f[k] === 'string' ? (f[k] as string) : undefined);
+        const patch = {
+          cwd: text('cwd'),
+          command: text('command'),
+          prepare: text('prepare') === '' ? null : text('prepare'),
+          description: text('description'),
+          port: text('port') === undefined ? undefined : Number(text('port')),
+          startTimeoutSec: text('timeout') === undefined ? undefined : text('timeout') === '' ? null : Number(text('timeout')),
+          dependsOn: text('depends') === undefined ? undefined : text('depends')!.split(',').map((x) => x.trim()).filter(Boolean),
+        };
+        if (Object.values(patch).every((v) => v === undefined)) throw new UsageError('nothing to change; pass at least one of --cwd --command --prepare --port --depends --description --timeout');
+        manager.store.update(names[0], patch);
+        out.line(`Updated ${out.bold(names[0])} — takes effect the next time it starts`);
+        return 0;
+      }
+      case 'group': {
+        const [action, gname, ...members] = names;
+        if (!action) {
+          const groups = manager.store.groups();
+          if (groups.length === 0) out.line(out.dim('No groups. Create one with: git-tidy services group set <group> <name…>'));
+          for (const g of groups) out.line(`${out.bold(g.name)}  ${g.members.join(out.dim(' → '))}`);
+          return 0;
+        }
+        if (action === 'set') {
+          if (!gname || members.length === 0) throw new UsageError('git-tidy services group set <group> <name…>');
+          const g = manager.store.setGroup(gname, members);
+          out.line(`Group ${out.bold(g.name)}: ${g.members.join(' → ')}`);
+          return 0;
+        }
+        if (action === 'rm') {
+          if (!gname) throw new UsageError('git-tidy services group rm <group>');
+          manager.store.removeGroup(gname);
+          out.line(`Removed group ${gname} (its services are untouched)`);
+          return 0;
+        }
+        throw new UsageError('git-tidy services group [set <group> <name…> | rm <group>]');
+      }
       case 'up':
         await manager.up(names, (e) => event(out, e));
         return 0;
@@ -65,9 +138,8 @@ export async function servicesCommand(rest: string[], args: ParsedArgs, out: Out
         await manager.down(names, (e) => event(out, e), { external: names.length > 0 || args.flags.external === true });
         return 0;
       case 'restart': {
-        if (names.length === 0) throw new UsageError('git-tidy services restart <name…>');
-        await manager.down(names, (e) => event(out, e), { external: true });
-        await manager.up(names, (e) => event(out, e));
+        if (names.length === 0) throw new UsageError('git-tidy services restart <name|group…>');
+        await manager.restart(names, (e) => event(out, e));
         return 0;
       }
       case 'logs': {
@@ -95,15 +167,16 @@ export async function servicesCommand(rest: string[], args: ParsedArgs, out: Out
       }
       case 'import': {
         if (!names[0]) throw new UsageError('git-tidy services import <file.json>');
-        let parsed: { services?: unknown[] };
+        let parsed: { services?: unknown[]; groups?: { name: string; members: string[] }[] };
         try {
-          parsed = JSON.parse(readFileSync(names[0], 'utf8')) as { services?: unknown[] };
+          parsed = JSON.parse(readFileSync(names[0], 'utf8')) as typeof parsed;
         } catch (e) {
           throw new ServiceError(`cannot read ${names[0]}: ${(e as Error).message}`);
         }
         if (!Array.isArray(parsed.services)) throw new ServiceError('the file must look like {"services": [ … ]}');
         const defs = parsed.services.map(validateDef); // validate all before saving any
         for (const d of defs) out.line(`${manager.store.put(d) ? 'Updated' : 'Added'} ${out.bold(d.name)} (port ${d.port})`);
+        for (const g of parsed.groups ?? []) out.line(`Group ${out.bold(g.name)}: ${manager.store.setGroup(g.name, g.members).members.join(' → ')}`);
         return 0;
       }
       case 'rm': {
