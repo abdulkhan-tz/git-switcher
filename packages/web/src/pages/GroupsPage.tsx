@@ -1,9 +1,10 @@
+import { Skeleton } from '../components/Skeleton';
 import { useServices } from '../components/useServices';
 import { api } from '../api';
 
 export function GroupsPage() {
   const { rows, groups, error, refresh, act } = useServices();
-  if (!rows) return error ? <div className="notice error">{error}</div> : <div className="muted">Loading…</div>;
+  if (!rows) return error ? <div className="notice error">{error}</div> : <Skeleton rows={3} />;
 
   const state = (n: string) => rows.find((r) => r.name === n)?.state ?? 'down';
   const busy = rows.some((r) => r.job);

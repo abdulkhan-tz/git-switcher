@@ -106,7 +106,7 @@ export function RepoCard({ repo, selected, busy, onToggle, onChanged, onError }:
             base: {repo.base ?? 'remote default'}
           </button>
         </div>
-        <div className="row-actions">
+        <div className="repo-actions">
           {others > 0 && (
             <button className="link" onClick={toggleWorktrees}>
               {others} worktree{others === 1 ? '' : 's'} {worktrees ? '▴' : '▾'}

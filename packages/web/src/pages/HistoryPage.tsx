@@ -1,3 +1,4 @@
+import { Skeleton } from '../components/Skeleton';
 import { Fragment, useEffect, useState } from 'react';
 import type { HistoryEntry } from '@tidy/core';
 import { api } from '../api';
@@ -32,7 +33,7 @@ export function HistoryPage() {
   };
 
   if (error) return <div className="notice error">{error}</div>;
-  if (!entries) return <div className="muted">Loading…</div>;
+  if (!entries) return <Skeleton rows={5} />;
   if (entries.length === 0) return <div className="empty">No runs yet.</div>;
 
   return (

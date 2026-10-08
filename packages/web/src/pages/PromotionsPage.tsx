@@ -1,3 +1,4 @@
+import { Skeleton } from '../components/Skeleton';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import type { PromotionStep } from '@tidy/core';
 import { api, type Promotion, type PromotionsView, type RepoView } from '../api';
@@ -144,7 +145,7 @@ export function PromotionsPage() {
         )}
       </div>
       {!data ? (
-        <div className="muted">Loading…</div>
+        <Skeleton rows={3} />
       ) : data.promotions.length === 0 ? (
         <div className="empty">
           <p>No promotions yet.</p>

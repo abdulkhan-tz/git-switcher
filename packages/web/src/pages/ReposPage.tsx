@@ -1,3 +1,4 @@
+import { Skeleton } from '../components/Skeleton';
 import { useCallback, useEffect, useState } from 'react';
 import type { Group } from '@tidy/core';
 import { api, type RepoView } from '../api';
@@ -117,7 +118,7 @@ export function ReposPage() {
       </div>
 
       {repos === null ? (
-        <div className="muted">Loading…</div>
+        <Skeleton rows={4} />
       ) : repos.length === 0 ? (
         <div className="empty">
           <p>No repos registered yet.</p>

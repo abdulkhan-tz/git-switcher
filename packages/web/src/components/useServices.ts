@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { ServiceGroup } from '@tidy/core';
 import { api, type ServiceView } from '../api';
+import { toast } from './Toast';
 
 const REFRESH_MS = 3000;
 
@@ -36,14 +37,38 @@ export function useServices() {
     return () => clearInterval(t);
   }, [refresh]);
 
-  const act = async (fn: () => Promise<unknown>) => {
+  /** Runs a change, tells the user how it went, then reloads. `done` is the success message. */
+  const act = async (fn: () => Promise<unknown>, done?: string) => {
     try {
       await fn();
+      if (done) toast(done);
     } catch (e) {
       setError((e as Error).message);
+      toast((e as Error).message, 'error');
     }
     await refresh();
   };
 
   return { rows, groups, error, setError, refresh, act };
+}
+
+/** Lightweight up/total count for the sidebar; the Services page does its own, fuller polling. */
+export function useServiceCount() {
+  const [n, setN] = useState<{ up: number; total: number } | null>(null);
+  useEffect(() => {
+    if (!api.hasToken()) return;
+    let alive = true;
+    const load = () =>
+      api.services().then(
+        (r) => alive && setN({ up: r.filter((s) => s.state === 'up' || s.state === 'external').length, total: r.length }),
+        () => {},
+      );
+    void load();
+    const t = setInterval(() => void load(), 5000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, []);
+  return n && n.total > 0 ? n : null;
 }

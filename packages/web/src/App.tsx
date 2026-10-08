@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { api } from './api';
 import { PAGES } from './pages';
+import { Toaster } from './components/Toast';
+import { useServiceCount } from './components/useServices';
 
 function currentPage(): string {
   const id = location.hash.replace(/^#\/?/, '').split('?')[0] ?? '';
@@ -25,24 +27,34 @@ export function App() {
     return () => clearInterval(t);
   }, []);
 
+  const services = useServiceCount();
+
   return (
     <div className="app">
-      <header className="topbar">
+      <header className="sidebar">
         <div className="brand">
           <span className="logo" aria-hidden>⎇</span> tidy
         </div>
-        <nav aria-label="Sections">
+        <nav className="side-nav" aria-label="Sections">
           {(['Git', 'Services'] as const).map((section) => (
             <div key={section} className="nav-section" role="group" aria-label={section}>
               <span className="nav-label">{section}</span>
               {PAGES.filter((p) => p.section === section).map((p) => (
-                <a key={p.id} href={`#/${p.id}`} className={p.id === pageId ? 'active' : ''}>
+                <a key={p.id} href={`#/${p.id}`} className={`nav-link ${p.id === pageId ? 'active' : ''}`}>
+                  <svg viewBox="0 0 24 24" aria-hidden><path d={p.icon} /></svg>
                   {p.label}
+                  {p.id === 'services' && services && <span className="nav-count" title="services up / total">{services.up}/{services.total}</span>}
                 </a>
               ))}
             </div>
           ))}
         </nav>
+        {services && (
+          <div className="side-foot">
+            <span className={`status ${services.up === services.total ? 'ok' : services.up > 0 ? 'warn' : ''}`}><i /></span>
+            {services.up} of {services.total} services up
+          </div>
+        )}
       </header>
       <main>
         {stale && (
@@ -56,6 +68,7 @@ export function App() {
           <div className="notice error">No access token. Open the dashboard with <code>git-tidy ui</code>, which puts the token in the URL.</div>
         )}
       </main>
+      <Toaster />
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { api, type ServiceGitView, type ServiceView } from '../api';
 import { badge, useServices } from '../components/useServices';
+import { Skeleton } from '../components/Skeleton';
 
 type Tab = 'logs' | 'git' | 'config';
 
@@ -85,7 +86,7 @@ function Config({ s, onChanged, onError }: { s: ServiceView; onChanged: () => Pr
   );
 }
 
-function BranchSwitcher({ s, act }: { s: ServiceView; act: (fn: () => Promise<unknown>) => Promise<void> }) {
+function BranchSwitcher({ s, act }: { s: ServiceView; act: (fn: () => Promise<unknown>, done?: string) => Promise<void> }) {
   const [branches, setBranches] = useState<string[]>([]);
   const [choice, setChoice] = useState('');
   useEffect(() => {
@@ -102,7 +103,7 @@ function BranchSwitcher({ s, act }: { s: ServiceView; act: (fn: () => Promise<un
   const go = () => {
     const stash = s.git!.dirty ? `\n\nYour ${plural(s.git!.dirty, 'uncommitted file')} will be stashed and put back on the new branch.` : '';
     if (!confirm(`Switch ${s.name} from ${s.git!.branch ?? '(detached)'} to ${choice}?${running ? `\n\n${s.name} (and anything that needs it) will be stopped, then started again on the new code.` : ''}${stash}`)) return;
-    void act(() => api.switchServiceBranch(s.name, choice, true)).then(() => setChoice(''));
+    void act(() => api.switchServiceBranch(s.name, choice, true), `Switching ${s.name} to ${choice}…`).then(() => setChoice(''));
   };
   return (
     <div className="section-head" style={{ margin: '4px 0 10px' }}>
@@ -278,7 +279,7 @@ export function ServicesPage() {
   const [selected, setSelected] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>('logs');
 
-  if (!rows) return error ? <div className="notice error">{error}</div> : <div className="muted">Loading…</div>;
+  if (!rows) return error ? <div className="notice error">{error}</div> : <Skeleton rows={5} />;
   if (rows.length === 0) {
     return (
       <div className="empty">
@@ -302,13 +303,13 @@ export function ServicesPage() {
     const canStopExternal = r.state === 'external' && !r.job && !!r.externalPid;
     return (
       <>
-        {canStart && <button className="small" onClick={() => act(() => api.servicesUp([r.name]))}>Start</button>}
-        {canStop && <button className="ghost small" onClick={() => act(() => api.servicesDown([r.name]))}>Stop</button>}
+        {canStart && <button className="small" onClick={() => act(() => api.servicesUp([r.name]), `Starting ${r.name}…`)}>Start</button>}
+        {canStop && <button className="ghost small" onClick={() => act(() => api.servicesDown([r.name]), `Stopping ${r.name}…`)}>Stop</button>}
         {canStopExternal && (
           <button
             className="ghost small"
             onClick={() => {
-              if (confirm(`Stop ${r.name}? This ends pid ${r.externalPid}, which was started outside tidy:\n\n${r.externalCommand ?? ''}\n\nStart will then run it under tidy.`)) void act(() => api.servicesDown([r.name], true));
+              if (confirm(`Stop ${r.name}? This ends pid ${r.externalPid}, which was started outside tidy:\n\n${r.externalCommand ?? ''}\n\nStart will then run it under tidy.`)) void act(() => api.servicesDown([r.name], true), `Stopping ${r.name}…`);
             }}
           >
             Stop
@@ -320,11 +321,12 @@ export function ServicesPage() {
 
   const gitCell = (r: ServiceView) =>
     r.git ? (
-      <div className="small" title={r.git.branch ?? ''}>
+      <div className="git-cell" title={r.git.branch ?? ''}>
+        <span className="branch small">{r.git.branch ?? '(detached)'}</span>
         <button className="link small" onClick={() => open(r.name, 'git')}>
-          {r.git.dirty} uncommitted · stash {r.git.stashes} ({plural(r.git.stashFiles, 'file')})
+          {r.git.dirty === 0 ? 'clean' : `${r.git.dirty} uncommitted`}
+          {r.git.stashes > 0 ? ` · ${plural(r.git.stashes, 'stash', 'stashes')} (${plural(r.git.stashFiles, 'file')})` : ''}
         </button>
-        <div className="muted">{r.git.branch ?? '(detached)'}</div>
       </div>
     ) : (
       <span className="muted small">—</span>
@@ -338,7 +340,7 @@ export function ServicesPage() {
         <div className="section-head">
           <button className="ghost small" onClick={() => setSelected(null)}>← All services</button>
           <h2>{current.name}</h2>
-          <span className={`badge ${b.cls}`}>{b.text}</span>
+          <span className={`status ${b.cls}`}><i />{b.text}</span>
           {current.groups.map((g) => <span key={g} className="badge info">{g}</span>)}
           <span className="spacer" />
           <button className="ghost small" onClick={() => void refresh(true)} title="Re-read status, branch and git counts now">Refresh</button>
@@ -355,7 +357,7 @@ export function ServicesPage() {
               const rb = badge(r);
               return (
                 <button key={r.name} className={r.name === current.name ? 'on' : ''} onClick={() => setSelected(r.name)} role="listitem">
-                  <span><span className={`dot ${rb.cls}`} aria-hidden />{r.name}</span>
+                  <span style={{ fontWeight: 600 }}><span className={`dot ${rb.cls}`} aria-hidden />{r.name}</span>
                   <span className="muted small">:{r.port}{r.groups.length ? ` · ${r.groups.join(', ')}` : ''}</span>
                 </button>
               );
@@ -386,8 +388,8 @@ export function ServicesPage() {
         <h2>Services</h2>
         <span className="spacer" />
         <button className="ghost small" onClick={() => void refresh(true)}>Refresh</button>
-        <button className="small" disabled={busy || !anyDown} onClick={() => act(() => api.servicesUp([]))}>Start all down</button>
-        <button className="ghost small" disabled={busy || !anyManaged} onClick={() => act(() => api.servicesDown([]))}>Stop all</button>
+        <button className="small" disabled={busy || !anyDown} onClick={() => act(() => api.servicesUp([]), 'Starting everything that is down…')}>Start all down</button>
+        <button className="ghost small" disabled={busy || !anyManaged} onClick={() => act(() => api.servicesDown([]), 'Stopping everything tidy started…')}>Stop all</button>
       </div>
       <table className="history">
         <thead>
@@ -413,7 +415,7 @@ export function ServicesPage() {
                 </td>
                 <td>{r.groups.length ? r.groups.map((g) => <span key={g} className="badge info" style={{ marginRight: 4 }}>{g}</span>) : <span className="muted small">—</span>}</td>
                 <td>
-                  <span className={`badge ${b.cls}`}>{b.text}</span>
+                  <span className={`status ${b.cls}`}><i />{b.text}</span>
                   {r.state === 'external' && r.externalPid && (
                     <div className="muted small" title={r.externalCommand}>
                       pid {r.externalPid} · {(r.externalCommand?.split(' ')[0] ?? '').split('/').pop()} — started outside tidy
@@ -423,9 +425,11 @@ export function ServicesPage() {
                 <td className="path">:{r.port}</td>
                 <td className="muted small">{r.dependsOn.join(', ') || '—'}</td>
                 <td>{gitCell(r)}</td>
-                <td className="row-actions">
-                  {controls(r)}
-                  <button className="link small" onClick={() => open(r.name, 'logs')}>Logs</button>
+                <td className="svc-actions">
+                  <div>
+                    {controls(r)}
+                    <button className="ghost small" onClick={() => open(r.name, 'logs')}>Logs</button>
+                  </div>
                 </td>
               </tr>
             );
