@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { spawn } from 'node:child_process';
+import { execSync, spawn } from 'node:child_process';
 import { createServer } from 'node:net';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ServiceError, ServiceManager, ServiceStore, portOpen, validateDef, type ServiceDef, type ServiceEvent } from '../src/index.js';
+import { makeFixture } from './fixture.js';
+import { ServiceError, ServiceManager, ServiceStore, listBranches, portOpen, serviceGit, validateDef, type ServiceDef, type ServiceEvent } from '../src/index.js';
 
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -167,4 +168,62 @@ describe('services', () => {
     manager.store.remove('app');
     expect(manager.store.groups()[0]!.members).toEqual(['database']);
   });
+
+  it('renames a group and keeps its sequence', () => {
+    const { manager } = setup();
+    manager.store.put(listener('a', 1));
+    manager.store.put(listener('b', 2));
+    manager.store.setGroup('first', ['b', 'a']);
+    manager.store.renameGroup('first', 'second');
+    expect(manager.store.groups()).toEqual([{ name: 'second', members: ['b', 'a'] }]);
+    expect(() => manager.store.renameGroup('second', 'a')).toThrow(/already in use/);
+    expect(() => manager.store.renameGroup('nope', 'x')).toThrow(/no group/);
+  });
+
+  it('reports uncommitted files and stash counts for a service folder', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'git-tidy-svcgit-'));
+    const sh = (c: string) => execSync(c, { cwd: dir, stdio: 'pipe' });
+    sh('git init -q -b main && git config user.email t@example.com && git config user.name t');
+    writeFileSync(join(dir, 'a.txt'), '1');
+    writeFileSync(join(dir, 'b.txt'), '1');
+    sh('git add . && git commit -q -m init');
+    writeFileSync(join(dir, 'a.txt'), '2');
+    writeFileSync(join(dir, 'b.txt'), '2');
+    sh('git stash -q'); // one stash entry holding two files
+    writeFileSync(join(dir, 'a.txt'), '3');
+    writeFileSync(join(dir, 'new.txt'), 'x');
+
+    const g = (await serviceGit(dir))!;
+    expect(g.branch).toBe('main');
+    expect(g.files.map((f) => `${f.status}|${f.path}`).sort()).toEqual([' M|a.txt', '??|new.txt']);
+    expect(g.stashes).toHaveLength(1);
+    expect(g.stashes[0]!.files.sort()).toEqual(['a.txt', 'b.txt']);
+    expect(g.stashFileCount).toBe(2);
+    expect(await serviceGit(mkdtempSync(join(tmpdir(), 'not-a-repo-')))).toBeNull();
+  });
+
+  it('switches the branch a service runs from, restarting it, and keeps uncommitted files', async () => {
+    const fx = makeFixture();
+    const { manager } = setup();
+    const port = await freePort();
+    manager.store.put(listener('app', port, { cwd: fx.work }));
+    await manager.up(['app']);
+    const pid = (await manager.status('app'))[0]!.pid;
+    fx.write(fx.work, 'local-dev.txt', 'mine'); // an untracked local file, like the main checkouts carry
+
+    expect((await listBranches(fx.work)).branches).toEqual(['feature', 'main']);
+    const { result, restarted } = await manager.switchBranch('app', 'feature');
+    expect(result.outcome).toBe('switched');
+    expect(restarted).toBe(true);
+    expect(fx.exists(fx.work, 'feature.txt')).toBe(true);
+    expect(fx.read(fx.work, 'local-dev.txt')).toBe('mine');
+    const [after] = await manager.status('app', { git: true });
+    expect(after).toMatchObject({ state: 'up', git: { branch: 'feature' } });
+    expect(after!.pid).not.toBe(pid);
+
+    // a branch that exists nowhere is not created from here; nothing changes and the service stays up
+    const missing = await manager.switchBranch('app', 'no-such-branch');
+    expect(missing.result.outcome).toBe('cancelled');
+    expect((await manager.status('app'))[0]!.state).toBe('up');
+  }, 60_000);
 });

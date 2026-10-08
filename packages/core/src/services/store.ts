@@ -182,6 +182,19 @@ export class ServiceStore {
     return group;
   }
 
+  /** Renames a group, keeping its members and their order. */
+  renameGroup(from: string, to: string): ServiceGroup {
+    validName(to, 'group');
+    const data = this.load();
+    const g = data.groups.find((x) => x.name === from);
+    if (!g) throw new ServiceError(`no group "${from}"`);
+    if (to === from) return g;
+    if (data.groups.some((x) => x.name === to) || data.services.some((s) => s.name === to)) throw new ServiceError(`"${to}" is already in use`);
+    g.name = to;
+    this.save(data);
+    return g;
+  }
+
   removeGroup(name: string): void {
     const data = this.load();
     const i = data.groups.findIndex((g) => g.name === name);

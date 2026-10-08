@@ -1,11 +1,13 @@
-import type { ServiceGroup, ServiceStatus, FoldedHead, Group, HistoryEntry, Promotion, RepoEntry, RepoState, Settings, WorkerStatus, WorktreeDetails } from '@tidy/core';
+import type { ServiceGit, ServiceGroup, ServiceStatus, FoldedHead, Group, HistoryEntry, Promotion, RepoEntry, RepoState, Settings, WorkerStatus, WorktreeDetails } from '@tidy/core';
 import type { RunEvent } from '@tidy/server';
 
 export type { RunEvent };
 
 export type { Promotion };
 
-export type ServiceView = ServiceStatus & { job?: 'starting' | 'stopping'; error?: string };
+export type ServiceGitView = ServiceGit | { root: null };
+
+export type ServiceView = ServiceStatus & { job?: 'starting' | 'stopping' | 'switching'; error?: string };
 
 export interface PromotionsView {
   promotions: Promotion[];
@@ -87,7 +89,12 @@ export const api = {
   removeServiceGroup: (name: string) => call<{ ok: true }>('DELETE', `/services/groups/${enc(name)}`),
   renameService: (name: string, to: string) => call<unknown>('POST', `/services/${enc(name)}/rename`, { to }),
   updateService: (name: string, patch: Record<string, unknown>) => call<unknown>('PATCH', `/services/${enc(name)}`, patch),
-  serviceLog: (name: string) => call<{ log: string }>('GET', `/services/${enc(name)}/logs?lines=120`),
+  renameServiceGroup: (name: string, to: string) => call<ServiceGroup>('POST', `/services/groups/${enc(name)}`, { to }),
+  dismissServiceError: (name: string) => call<{ ok: true }>('DELETE', `/services/${enc(name)}/error`),
+  serviceBranches: (name: string) => call<{ current: string | null; branches: string[] }>('GET', `/services/${enc(name)}/branches`),
+  switchServiceBranch: (name: string, branch: string, restart = true) => call<{ ok: true }>('POST', `/services/${enc(name)}/switch`, { branch, restart }),
+  serviceGit: (name: string) => call<ServiceGitView>('GET', `/services/${enc(name)}/git`),
+  serviceLog: (name: string) => call<{ log: string }>('GET', `/services/${enc(name)}/logs?lines=300`),
   groups: () => call<Group[]>('GET', '/groups'),
   setGroup: (name: string, repoIds: string[]) => call<Group>('PUT', `/groups/${enc(name)}`, { repoIds }),
   removeGroup: (name: string) => call<{ ok: true }>('DELETE', `/groups/${enc(name)}`),

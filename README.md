@@ -86,6 +86,9 @@ git tidy services restart api               # stops and starts it (and whatever 
 git tidy services rename api backend        # needs, groups and logs follow
 git tidy services set api --port 8081 --depends db --prepare ""   # edit; "" clears an optional field
 git tidy services group set dev db api web  # a group: start order = the order given
+git tidy services group rename dev backend
+git tidy services branch api                # the branch it runs on (and how many it could switch to)
+git tidy services switch api feature/login  # stop it, switch its checkout, start it again
 git tidy services up dev                    # start the whole group, top to bottom
 git tidy services logs api --lines 100    # logs live in ~/.config/git-tidy/logs/
 git tidy services add api --cwd ~/code/api --port 8080 \
@@ -101,8 +104,15 @@ not already up, and never restarts one that is; `down` stops only what you name 
 started by an IDE or another terminal shows as *up (elsewhere)*: it is never started twice.
 `down` with no names leaves it alone; `down <name>` (or the dashboard's Stop, which asks first)
 ends only the one process listening on that port, after which `up` runs it under tidy. Definitions live in `services.json` in the config directory. The
-dashboard has a Services tab: Start / Stop / Log per service, click a row to see and edit its
-configuration or rename it, and a Groups section to order and start/stop sets of services.
+dashboard has two sections in its header: **Git** (Repos, Promotions, History) and **Services**
+(Services, Groups). Services lists each process with its groups, state, branch, uncommitted-file
+and stash counts. Click one for a side panel — the service list on the left, and on the right its
+**Logs** (live), **Uncommitted files** (with every stash entry and its files) and **Config**
+(folder, command, build step, env; edit or rename). The panel also has a branch picker with
+*Switch & restart*: the service is stopped, its checkout is switched with the same safe
+stash → switch → pull → pop as the Repos tab (a branch that does not exist is never created from
+here), and the service is started again on the new code. The **Groups** tab creates, renames,
+reorders and starts/stops groups.
 
 ## Dashboard and tray app
 

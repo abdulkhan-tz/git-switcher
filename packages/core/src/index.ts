@@ -16,3 +16,5 @@ export * from './settings.js';
 export * from './services/types.js';
 export * from './services/store.js';
 export * from './services/manager.js';
+export * from './services/git.js';
+export * from './services/branches.js';

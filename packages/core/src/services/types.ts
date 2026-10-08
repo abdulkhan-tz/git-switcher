@@ -54,6 +54,10 @@ export interface ServiceStatus {
   startedAt?: string;
   logFile: string;
   dependsOn: string[];
+  /** Names of the groups this service belongs to. */
+  groups: string[];
+  /** Branch, uncommitted-file and stash counts for the folder; only when asked for. */
+  git?: import('./git.js').GitSummary | null;
 }
 
 export type ServiceEvent =

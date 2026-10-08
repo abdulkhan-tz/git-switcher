@@ -1,6 +1,9 @@
 import { execFile, spawn } from 'node:child_process';
 import { closeSync, mkdirSync, openSync, readFileSync, statSync } from 'node:fs';
 import { connect } from 'node:net';
+import { switchBranch } from '../switch/run.js';
+import type { RunResult, StepEvent } from '../switch/types.js';
+import { gitSummary, serviceGit } from './git.js';
 import { ServiceError, ServiceStore, expandHome } from './store.js';
 import type { ServiceDef, ServiceEvent, ServiceStatus } from './types.js';
 
@@ -61,16 +64,17 @@ function runShell(def: ServiceDef, script: string, logFd: number): Promise<numbe
 export class ServiceManager {
   constructor(readonly store: ServiceStore = new ServiceStore()) {}
 
-  async status(name?: string): Promise<ServiceStatus[]> {
+  async status(name?: string, opts: { git?: boolean } = {}): Promise<ServiceStatus[]> {
     const defs = name ? [this.store.get(name)] : this.store.list();
     const running = this.store.running();
+    const groups = this.store.groups();
     return Promise.all(
       defs.map(async (d): Promise<ServiceStatus> => {
         const rec = running[d.name];
         const alive = rec ? isAlive(rec.pid) : false;
         if (rec && !alive) this.store.setRunning(d.name, null); // stale record: the process is gone
         const open = await portOpen(d.port);
-        const base = { name: d.name, description: d.description, port: d.port, cwd: d.cwd, command: d.command, prepare: d.prepare, env: d.env, startTimeoutSec: d.startTimeoutSec, logFile: this.store.logFile(d.name), dependsOn: d.dependsOn ?? [] };
+        const base = { name: d.name, description: d.description, port: d.port, cwd: d.cwd, command: d.command, prepare: d.prepare, env: d.env, startTimeoutSec: d.startTimeoutSec, logFile: this.store.logFile(d.name), dependsOn: d.dependsOn ?? [], groups: groups.filter((g) => g.members.includes(d.name)).map((g) => g.name), git: opts.git ? await gitSummary(d.cwd) : undefined };
         if (alive && open) return { ...base, state: 'up', pid: rec!.pid, startedAt: rec!.startedAt };
         if (alive) return { ...base, state: 'starting', pid: rec!.pid, startedAt: rec!.startedAt };
         if (open) {
@@ -193,6 +197,38 @@ export class ServiceManager {
     const wanted = new Set([...this.resolve(names), ...stopped]);
     const sequence = [...this.order([...wanted])].map((d) => d.name).filter((n) => wanted.has(n));
     await this.up(sequence, on);
+  }
+
+  /**
+   * Switches the git checkout a service runs from to `branch` (stash → checkout → pull → pop, the
+   * same engine as the Repos tab) and, if the service was running, starts it again on the new code.
+   * The service is stopped first so nothing runs against a half-switched tree; if the switch fails
+   * it is left stopped. A switch that was cancelled before changing anything restores it.
+   * Questions the engine would ask (create the branch? remove a worktree?) are answered "no".
+   */
+  async switchBranch(
+    name: string,
+    branch: string,
+    opts: { restart?: boolean; onStep?: (e: StepEvent) => void; on?: (e: ServiceEvent) => void } = {},
+  ): Promise<{ result: RunResult; restarted: boolean }> {
+    const def = this.store.get(name);
+    const git = await serviceGit(def.cwd);
+    if (!git) throw new ServiceError(`${name}: ${def.cwd} is not inside a git repository`);
+    const on = opts.on ?? (() => {});
+    const [before] = await this.status(name);
+    const wasRunning = before!.state !== 'down';
+    const stopped: string[] = [];
+    if (wasRunning && opts.restart !== false) {
+      await this.down([name], (e) => (e.type === 'stopped' && stopped.push(e.name), on(e)), { external: true });
+    }
+    const result = await switchBranch(git.root, branch, {}, async () => false, opts.onStep);
+    if (result.outcome === 'failed') return { result, restarted: false };
+    if (stopped.length && (result.outcome === 'switched' || result.outcome === 'cancelled')) {
+      const wanted = new Set(stopped);
+      await this.up(this.order([...wanted]).map((d) => d.name).filter((n) => wanted.has(n)), on);
+      return { result, restarted: true };
+    }
+    return { result, restarted: false };
   }
 
   /**

@@ -31,11 +31,16 @@ export function App() {
         <div className="brand">
           <span className="logo" aria-hidden>⎇</span> tidy
         </div>
-        <nav>
-          {PAGES.map((p) => (
-            <a key={p.id} href={`#/${p.id}`} className={p.id === pageId ? 'active' : ''}>
-              {p.label}
-            </a>
+        <nav aria-label="Sections">
+          {(['Git', 'Services'] as const).map((section) => (
+            <div key={section} className="nav-section" role="group" aria-label={section}>
+              <span className="nav-label">{section}</span>
+              {PAGES.filter((p) => p.section === section).map((p) => (
+                <a key={p.id} href={`#/${p.id}`} className={p.id === pageId ? 'active' : ''}>
+                  {p.label}
+                </a>
+              ))}
+            </div>
           ))}
         </nav>
       </header>

@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { ServiceError, ServiceManager, validateDef, type ServiceEvent, type ServiceState, type ServiceStatus } from '@tidy/core';
+import { ServiceError, ServiceManager, listBranches, serviceGit, validateDef, type ServiceEvent, type ServiceState, type ServiceStatus } from '@tidy/core';
 import { str, type ParsedArgs } from './args.js';
 import type { Out } from './io.js';
 
@@ -12,10 +12,13 @@ git-tidy services up [name|group…]          start in the background, in the or
 git-tidy services down [name|group…]            stop the ones git tidy started (none = all)
 git-tidy services restart <name…>
 git-tidy services logs <name> [--lines n]
+git-tidy services branch <name>             the branch it runs on, and the branches it could switch to
+git-tidy services switch <name> <branch> [--no-restart]   stop it, switch its checkout (uncommitted files are stashed and restored), start it again
 git-tidy services rename <name> <new-name>  (dependencies, groups and logs follow)
 git-tidy services set <name> [--cwd d] [--command c] [--prepare c|""] [--port n] [--depends a,b|""] [--description t] [--timeout sec]
 git-tidy services group                     list groups
 git-tidy services group set <group> <name…> create or replace a group; the order given is the start order
+git-tidy services group rename <group> <new-name>
 git-tidy services group rm <group>
 git-tidy services add <name> --cwd <dir> --command <cmd> --port <n> [--prepare <cmd>] [--depends a,b] [--description text]
 git-tidy services import <file.json>      add or replace definitions from a file ({"services":[…]})
@@ -32,6 +35,7 @@ export function renderShow(out: Out, r: ServiceStatus): void {
   const row = (k: string, v: string | undefined) => v !== undefined && v !== '' && out.line(`  ${out.dim(k.padEnd(11))} ${v}`);
   out.line(`${out.bold(r.name)}  ${LABEL[r.state].paint(out)(LABEL[r.state].text)}${r.pid ?? r.externalPid ? out.dim(`  pid ${r.pid ?? r.externalPid}`) : ''}`);
   row('about', r.description);
+  row('groups', r.groups.join(', ') || undefined);
   row('folder', r.cwd);
   row('port', String(r.port));
   row('needs', r.dependsOn.join(', ') || undefined);
@@ -41,6 +45,7 @@ export function renderShow(out: Out, r: ServiceStatus): void {
   row('timeout', r.startTimeoutSec ? `${r.startTimeoutSec}s` : undefined);
   row('log', r.logFile);
   if (r.externalCommand) row('running as', r.externalCommand);
+  if (r.git) row('git', `${r.git.branch ?? '(detached)'} · ${r.git.dirty} uncommitted file${r.git.dirty === 1 ? '' : 's'} · ${r.git.stashes} stash${r.git.stashes === 1 ? '' : 'es'} (${r.git.stashFiles} file${r.git.stashFiles === 1 ? '' : 's'})`);
 }
 
 export function renderServices(out: Out, rows: ServiceStatus[]): void {
@@ -82,8 +87,28 @@ export async function servicesCommand(rest: string[], args: ParsedArgs, out: Out
         return 0;
       case 'show': {
         if (!names[0]) throw new UsageError('git-tidy services show <name>');
-        renderShow(out, (await manager.status(names[0]))[0]!);
+        renderShow(out, (await manager.status(names[0], { git: true }))[0]!);
         return 0;
+      }
+      case 'branch': {
+        if (!names[0]) throw new UsageError('git-tidy services branch <name>');
+        const git = await serviceGit(manager.store.get(names[0]).cwd);
+        if (!git) throw new ServiceError(`${names[0]}: not inside a git repository`);
+        const { branches } = await listBranches(git.root);
+        out.line(`${out.bold(names[0])} runs ${out.bold(git.branch ?? '(detached)')} @ ${git.head}  ${out.dim(git.root)}`);
+        out.line(out.dim(`${branches.length} branches available: git-tidy services switch ${names[0]} <branch>`));
+        return 0;
+      }
+      case 'switch': {
+        if (!names[0] || !names[1]) throw new UsageError('git-tidy services switch <name> <branch> [--no-restart]');
+        const { result, restarted } = await manager.switchBranch(names[0], names[1], {
+          restart: args.flags['no-restart'] !== true,
+          onStep: (e) => e.status !== 'start' && out.line(`${out.dim('·')} ${e.step}: ${e.message || e.status}`),
+          on: (e) => event(out, e),
+        });
+        if (result.outcome === 'switched') out.line(`${out.green('✓')} ${names[0]} is on ${out.bold(names[1])}${restarted ? ' and running again' : ''}`);
+        else out.line(out.red(`${result.outcome}: ${result.error ?? 'nothing changed'}${result.recovery ? `\n${result.recovery}` : ''}`));
+        return result.outcome === 'switched' ? 0 : 1;
       }
       case 'rename': {
         if (!names[0] || !names[1]) throw new UsageError('git-tidy services rename <name> <new-name>');
@@ -123,13 +148,19 @@ export async function servicesCommand(rest: string[], args: ParsedArgs, out: Out
           out.line(`Group ${out.bold(g.name)}: ${g.members.join(' → ')}`);
           return 0;
         }
+        if (action === 'rename') {
+          if (!gname || !members[0]) throw new UsageError('git-tidy services group rename <group> <new-name>');
+          manager.store.renameGroup(gname, members[0]);
+          out.line(`Renamed group ${out.bold(gname)} → ${out.bold(members[0])}`);
+          return 0;
+        }
         if (action === 'rm') {
           if (!gname) throw new UsageError('git-tidy services group rm <group>');
           manager.store.removeGroup(gname);
           out.line(`Removed group ${gname} (its services are untouched)`);
           return 0;
         }
-        throw new UsageError('git-tidy services group [set <group> <name…> | rm <group>]');
+        throw new UsageError('git-tidy services group [set <group> <name…> | rename <group> <new-name> | rm <group>]');
       }
       case 'up':
         await manager.up(names, (e) => event(out, e));

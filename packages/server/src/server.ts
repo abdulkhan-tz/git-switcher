@@ -4,7 +4,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { extname, join, normalize, resolve } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { fileURLToPath } from 'node:url';
-import { ServiceError, ServiceManager, History, PromotionError, PromotionWorker, Registry, RegistryError, SettingsError, foldedHeads, repairCase, inspect, listWorktrees, repoExists, worktreeDetails, type RepoEntry } from '@tidy/core';
+import { listBranches, serviceGit, ServiceError, ServiceManager, History, PromotionError, PromotionWorker, Registry, RegistryError, SettingsError, foldedHeads, repairCase, inspect, listWorktrees, repoExists, worktreeDetails, type RepoEntry } from '@tidy/core';
 import { Batch } from './runs.js';
 
 export interface ServerOptions {
@@ -83,7 +83,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
   const busy = new Set<string>();
   const services = opts.services ?? new ServiceManager();
   /** Starting a service can take minutes, so the API answers at once; a failure is shown on the next poll. */
-  const serviceJobs = new Map<string, { action: 'starting' | 'stopping'; error?: string }>();
+  const serviceJobs = new Map<string, { action: 'starting' | 'stopping' | 'switching'; error?: string }>();
 
   const json = (res: ServerResponse, status: number, body: unknown) => {
     res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
@@ -205,8 +205,8 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
 
     if (resource === 'services') {
       if (!id && method === 'GET') {
-        const rows = await services.status();
-        return json(res, 200, rows.map((r) => ({ ...r, job: serviceJobs.get(r.name)?.action, error: r.state === 'up' ? undefined : serviceJobs.get(r.name)?.error })));
+        const rows = await services.status(undefined, { git: true });
+        return json(res, 200, rows.map((r) => ({ ...r, job: serviceJobs.get(r.name)?.action, error: r.state === 'up' && serviceJobs.get(r.name)?.action !== 'switching' ? undefined : serviceJobs.get(r.name)?.error })));
       }
       if (id === 'groups') {
         if (!sub && method === 'GET') return json(res, 200, services.store.groups());
@@ -216,6 +216,11 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
           return json(res, 200, services.store.setGroup(sub, b.members.map(String)));
         }
         if (sub && method === 'DELETE') return services.store.removeGroup(sub), json(res, 200, { ok: true });
+        if (sub && method === 'POST') {
+          const b = await readBody(req);
+          if (typeof b.to !== 'string') throw new HttpError(400, 'to is required');
+          return json(res, 200, services.store.renameGroup(sub, b.to.trim()));
+        }
       }
       if (id && sub === 'rename' && method === 'POST') {
         const b = await readBody(req);
@@ -238,6 +243,35 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
         };
         services.store.update(id, patch);
         return json(res, 200, services.store.get(id));
+      }
+      if (id && sub === 'error' && method === 'DELETE') {
+        if (serviceJobs.get(id)?.error) serviceJobs.delete(id);
+        return json(res, 200, { ok: true });
+      }
+      if (id && sub === 'branches' && method === 'GET') {
+        const git = await serviceGit(services.store.get(id).cwd);
+        return json(res, 200, git ? await listBranches(git.root) : { current: null, branches: [] });
+      }
+      if (id && sub === 'switch' && method === 'POST') {
+        const b = await readBody(req);
+        const branch = optStr(b.branch)?.trim();
+        if (!branch) throw new HttpError(400, 'branch is required');
+        services.store.get(id);
+        if (serviceJobs.get(id) && !serviceJobs.get(id)!.error) throw new HttpError(409, `${id} is already ${serviceJobs.get(id)!.action}`);
+        serviceJobs.set(id, { action: 'switching' });
+        void services
+          .switchBranch(id, branch, { restart: b.restart !== false })
+          .then(({ result }) => {
+            history.append(result);
+            if (result.outcome === 'switched') serviceJobs.delete(id);
+            else serviceJobs.set(id, { action: 'switching', error: `${result.outcome}${result.failedStep ? ` at ${result.failedStep}` : ''}: ${result.error ?? 'nothing was changed'}${result.recovery ? ` — ${result.recovery}` : ''}` });
+          })
+          .catch((e: Error) => serviceJobs.set(id, { action: 'switching', error: e.message }));
+        return json(res, 202, { ok: true });
+      }
+      if (id && sub === 'git' && method === 'GET') {
+        const def = services.store.get(id);
+        return json(res, 200, (await serviceGit(def.cwd)) ?? { root: null });
       }
       if (id && sub === 'logs' && method === 'GET') return json(res, 200, { log: services.tail(id, Number(url.searchParams.get('lines') ?? 80)) });
       if ((id === 'up' || id === 'down') && !sub && method === 'POST') {
