@@ -67,15 +67,55 @@ export function RepoCard({ repo, selected, busy, onToggle, onChanged, onError }:
   };
 
   return (
-    <article className={`card ${selected ? 'selected' : ''} ${repo.missing || repo.error ? 'broken' : ''} ${selectable ? 'selectable' : ''}`} onClick={onCardClick}>
-      <label className="card-head">
-        <input type="checkbox" checked={selected} onChange={onToggle} disabled={!selectable} />
-        <span className="repo-name">{repo.name}</span>
-        {busy && <span className="badge info">switching…</span>}
-      </label>
-      <div className="path" title={repo.path}>{repo.path}</div>
+    <article className={`repo-row ${selected ? 'selected' : ''} ${repo.missing || repo.error ? 'broken' : ''} ${selectable ? 'selectable' : ''}`} onClick={onCardClick}>
+      <div className="row-main">
+        <label className="row-name">
+          <input type="checkbox" checked={selected} onChange={onToggle} disabled={!selectable} />
+          <span className="row-title">
+            <span className="repo-name">{repo.name} {busy && <span className="badge info">switching…</span>}</span>
+            <span className="path" title={repo.path}>{repo.path}</span>
+          </span>
+        </label>
+        <div className="row-branch">
+          {repo.missing ? (
+            <span className="badge danger">path missing</span>
+          ) : s ? (
+            <>
+              <span className="branch" title={s.branch ?? ''}>{s.branch ?? '(detached HEAD)'}</span>
+              {s.upstream && <span className="muted small">→ {s.upstream}</span>}
+            </>
+          ) : null}
+        </div>
+        <div className="badges row-status">
+          {s && (
+            <>
+              {s.uncommitted > 0 && <span className="badge warn">{s.uncommitted} changed</span>}
+              {s.untracked > 0 && <span className="badge warn">{s.untracked} untracked</span>}
+              {s.ahead > 0 && <span className="badge">↑{s.ahead}</span>}
+              {s.behind > 0 && <span className="badge">↓{s.behind}</span>}
+              {s.inProgress !== 'none' && <span className="badge danger">{s.inProgress} in progress</span>}
+              {s.uncommitted + s.untracked === 0 && s.inProgress === 'none' && <span className="badge ok">clean</span>}
+            </>
+          )}
+        </div>
+        <div className="row-meta">
+          <button className="link pipeline-line" onClick={() => setEditingPipeline(true)} title="Upstream promotion order">
+            {repo.pipeline ? `⇡ ${repo.pipeline.stages.join(' → ')}` : '⇡ set up promotion pipeline'}
+          </button>
+          <button className="link" onClick={() => setEditing(true)} title="Start point used when a branch has to be created">
+            base: {repo.base ?? 'remote default'}
+          </button>
+        </div>
+        <div className="row-actions">
+          {others > 0 && (
+            <button className="link" onClick={toggleWorktrees}>
+              {others} worktree{others === 1 ? '' : 's'} {worktrees ? '▴' : '▾'}
+            </button>
+          )}
+          <button className="link danger" onClick={remove} disabled={busy}>remove</button>
+        </div>
+      </div>
 
-      {repo.missing && <div className="badge danger">path missing</div>}
       {repo.folded && repo.folded.length > 0 && (
         <div className="notice error small" role="alert">
           {repo.folded.length} checkout(s) on a branch macOS stored with the wrong case
@@ -104,24 +144,8 @@ export function RepoCard({ repo, selected, busy, onToggle, onChanged, onError }:
         </div>
       )}
       {repo.error && <div className="notice error small">{repo.error}</div>}
-      {s && (
-        <>
-          <div className="branch-line">
-            <span className="branch">{s.branch ?? '(detached HEAD)'}</span>
-            {s.upstream && <span className="muted">→ {s.upstream}</span>}
-          </div>
-          <div className="badges">
-            {s.uncommitted > 0 && <span className="badge warn">{s.uncommitted} changed</span>}
-            {s.untracked > 0 && <span className="badge warn">{s.untracked} untracked</span>}
-            {s.ahead > 0 && <span className="badge">↑{s.ahead}</span>}
-            {s.behind > 0 && <span className="badge">↓{s.behind}</span>}
-            {s.inProgress !== 'none' && <span className="badge danger">{s.inProgress} in progress</span>}
-            {s.uncommitted + s.untracked === 0 && s.inProgress === 'none' && <span className="badge ok">clean</span>}
-          </div>
-        </>
-      )}
 
-      {editingPipeline ? (
+      {editingPipeline && (
         <PipelineEditor
           repo={repo}
           onSaved={() => {
@@ -131,32 +155,14 @@ export function RepoCard({ repo, selected, busy, onToggle, onChanged, onError }:
           onCancel={() => setEditingPipeline(false)}
           onError={onError}
         />
-      ) : (
-        <button className="link pipeline-line" onClick={() => setEditingPipeline(true)} title="Upstream promotion order">
-          {repo.pipeline ? `⇡ ${repo.pipeline.stages.join(' → ')}` : '⇡ set up promotion pipeline'}
-        </button>
       )}
-
-      <div className="card-foot">
-        {editing ? (
-          <span className="inline-edit">
-            <input value={base} onChange={(e) => setBase(e.target.value)} placeholder="remote default" aria-label="Base for new branches" />
-            <button onClick={saveBase}>Save</button>
-            <button className="ghost" onClick={() => setEditing(false)}>Cancel</button>
-          </span>
-        ) : (
-          <button className="link" onClick={() => setEditing(true)} title="Start point used when a branch has to be created">
-            base: {repo.base ?? 'remote default'}
-          </button>
-        )}
-        <span className="spacer" />
-        {others > 0 && (
-          <button className="link" onClick={toggleWorktrees}>
-            {others} worktree{others === 1 ? '' : 's'} {worktrees ? '▴' : '▾'}
-          </button>
-        )}
-        <button className="link danger" onClick={remove} disabled={busy}>remove</button>
-      </div>
+      {editing && (
+        <span className="inline-edit">
+          <input value={base} onChange={(e) => setBase(e.target.value)} placeholder="remote default" aria-label="Base for new branches" />
+          <button onClick={saveBase}>Save</button>
+          <button className="ghost" onClick={() => setEditing(false)}>Cancel</button>
+        </span>
+      )}
 
       {worktrees && (
         <ul className="worktrees">

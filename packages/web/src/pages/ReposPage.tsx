@@ -124,7 +124,7 @@ export function ReposPage() {
           <p className="muted">Add one above, or run <code>git-tidy add /path/to/repo</code>.</p>
         </div>
       ) : (
-        <div className="grid">
+        <div className="rows">
           {repos.map((r) => (
             <RepoCard
               key={r.id + (r.base ?? '')}
