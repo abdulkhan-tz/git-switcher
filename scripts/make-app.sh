@@ -41,8 +41,18 @@ plist CFBundleIdentifier io.github.git-tidy
 codesign --force --deep --sign - "$APP" 2>/dev/null
 touch "$APP"
 
+# An item left by an earlier name ("git helper") would start a bundle that no longer exists: retire
+# it and carry its "Start at login" over to this app.
+LA="$HOME/Library/LaunchAgents"
+if [ -f "$LA/io.github.git-helper.tray.plist" ]; then
+  launchctl bootout "gui/$(id -u)/io.github.git-helper.tray" 2>/dev/null || true
+  rm -f "$LA/io.github.git-helper.tray.plist"
+  rm -rf "$DEST_DIR/git helper.app"
+  touch "$LA/io.github.git-tidy.tray.plist"
+fi
+
 # Point an existing "Start at login" item at the new bundle.
-if [ -f "$HOME/Library/LaunchAgents/io.github.git-tidy.tray.plist" ]; then
+if [ -f "$LA/io.github.git-tidy.tray.plist" ]; then
   ( cd "$DESKTOP" && node --input-type=module -e "
     import { enableLoginItem, loginShellPath } from './dist/login.js';
     enableLoginItem({ electron: process.argv[1], path: loginShellPath() });" "$APP/Contents/MacOS/Electron" )
