@@ -98,3 +98,8 @@ export async function gitSummary(cwd: string): Promise<GitSummary | null> {
   }
   return hit.value;
 }
+
+/** Forget cached summaries so the next call reads git again (a manual Refresh). */
+export function clearGitCache(): void {
+  cache.clear();
+}

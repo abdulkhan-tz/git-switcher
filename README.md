@@ -107,7 +107,7 @@ ends only the one process listening on that port, after which `up` runs it under
 dashboard has two sections in its header: **Git** (Repos, Promotions, History) and **Services**
 (Services, Groups). Services lists each process with its groups, state, branch, uncommitted-file
 and stash counts. Click one for a side panel — the service list on the left, and on the right its
-**Logs** (live), **Uncommitted files** (with every stash entry and its files) and **Config**
+**Logs** (a live tail that follows the newest line, with Pause, Refresh and Clear log), **Uncommitted files** (with every stash entry and its files) and **Config**
 (folder, command, build step, env; edit or rename). The panel also has a branch picker with
 *Switch & restart*: the service is stopped, its checkout is switched with the same safe
 stash → switch → pull → pop as the Repos tab (a branch that does not exist is never created from

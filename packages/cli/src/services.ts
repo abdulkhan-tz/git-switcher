@@ -11,7 +11,7 @@ git-tidy services show <name>               folder, command, build step, env, po
 git-tidy services up [name|group…]          start in the background, in the order given (each one's dependencies first; none = all)
 git-tidy services down [name|group…]            stop the ones git tidy started (none = all)
 git-tidy services restart <name…>
-git-tidy services logs <name> [--lines n]
+git-tidy services logs <name> [--lines n] [--follow] [--clear]   --follow keeps printing new lines (Ctrl-C to stop)
 git-tidy services branch <name>             the branch it runs on, and the branches it could switch to
 git-tidy services switch <name> <branch> [--no-restart]   stop it, switch its checkout (uncommitted files are stashed and restored), start it again
 git-tidy services rename <name> <new-name>  (dependencies, groups and logs follow)
@@ -174,10 +174,110 @@ export async function servicesCommand(rest: string[], args: ParsedArgs, out: Out
         return 0;
       }
       case 'logs': {
-        if (!names[0]) throw new UsageError('git-tidy services logs <name> [--lines n]');
-        const text = manager.tail(names[0], Number(str(args.flags, 'lines') ?? 50));
-        out.line(text || out.dim('(no log yet)'));
-        out.line(out.dim(manager.store.logFile(names[0])));
+        if (!names[0]) throw new UsageError('git-tidy services logs <name> [--lines n] [--follow] [--clear]');
+        if (args.flags.clear === true) {
+          manager.clearLog(names[0]);
+          out.line(`Cleared the log of ${out.bold(names[0])}`);
+          return 0;
+        }
+        const first = manager.readLog(names[0]);
+        const lines = first.text.split('\n');
+        out.line(lines.slice(-Number(str(args.flags, 'lines') ?? 50) - 1).join('\n') || out.dim('(no log yet)'));
+        if (args.flags.follow !== true) {
+          out.line(out.dim(manager.store.logFile(names[0])));
+          return 0;
+        }
+        let offset = first.offset;
+        // runs until the process is interrupted
+        for (;;) {
+          await new Promise((r) => setTimeout(r, 500));
+          const next = manager.readLog(names[0], { offset });
+          if (next.reset) out.line(out.dim('— log cleared —'));
+          if (next.text) out.line(next.text.replace(/\n$/, ''));
+          offset = next.offset;
+        }
+      }
+      case 'branch': {
+        if (!names[0]) throw new UsageError('git-tidy services branch <name>');
+        const git = await serviceGit(manager.store.get(names[0]).cwd);
+        if (!git) throw new ServiceError(`${names[0]}: not inside a git repository`);
+        const { branches } = await listBranches(git.root);
+        out.line(`${out.bold(names[0])} runs ${out.bold(git.branch ?? '(detached)')} @ ${git.head}  ${out.dim(git.root)}`);
+        out.line(out.dim(`${branches.length} branches available: git-tidy services switch ${names[0]} <branch>`));
+        return 0;
+      }
+      case 'switch': {
+        if (!names[0] || !names[1]) throw new UsageError('git-tidy services switch <name> <branch> [--no-restart]');
+        const { result, restarted } = await manager.switchBranch(names[0], names[1], {
+          restart: args.flags['no-restart'] !== true,
+          onStep: (e) => e.status !== 'start' && out.line(`${out.dim('·')} ${e.step}: ${e.message || e.status}`),
+          on: (e) => event(out, e),
+        });
+        if (result.outcome === 'switched') out.line(`${out.green('✓')} ${names[0]} is on ${out.bold(names[1])}${restarted ? ' and running again' : ''}`);
+        else out.line(out.red(`${result.outcome}: ${result.error ?? 'nothing changed'}${result.recovery ? `\n${result.recovery}` : ''}`));
+        return result.outcome === 'switched' ? 0 : 1;
+      }
+      case 'rename': {
+        if (!names[0] || !names[1]) throw new UsageError('git-tidy services rename <name> <new-name>');
+        manager.store.rename(names[0], names[1]);
+        out.line(`Renamed ${out.bold(names[0])} → ${out.bold(names[1])}`);
+        return 0;
+      }
+      case 'set': {
+        if (!names[0]) throw new UsageError('git-tidy services set <name> [--cwd d] [--command c] …');
+        const f = args.flags;
+        const text = (k: string) => (typeof f[k] === 'string' ? (f[k] as string) : undefined);
+        const patch = {
+          cwd: text('cwd'),
+          command: text('command'),
+          prepare: text('prepare') === '' ? null : text('prepare'),
+          description: text('description'),
+          port: text('port') === undefined ? undefined : Number(text('port')),
+          startTimeoutSec: text('timeout') === undefined ? undefined : text('timeout') === '' ? null : Number(text('timeout')),
+          dependsOn: text('depends') === undefined ? undefined : text('depends')!.split(',').map((x) => x.trim()).filter(Boolean),
+        };
+        if (Object.values(patch).every((v) => v === undefined)) throw new UsageError('nothing to change; pass at least one of --cwd --command --prepare --port --depends --description --timeout');
+        manager.store.update(names[0], patch);
+        out.line(`Updated ${out.bold(names[0])} — takes effect the next time it starts`);
+        return 0;
+      }
+      case 'group': {
+        const [action, gname, ...members] = names;
+        if (!action) {
+          const groups = manager.store.groups();
+          if (groups.length === 0) out.line(out.dim('No groups. Create one with: git-tidy services group set <group> <name…>'));
+          for (const g of groups) out.line(`${out.bold(g.name)}  ${g.members.join(out.dim(' → '))}`);
+          return 0;
+        }
+        if (action === 'set') {
+          if (!gname || members.length === 0) throw new UsageError('git-tidy services group set <group> <name…>');
+          const g = manager.store.setGroup(gname, members);
+          out.line(`Group ${out.bold(g.name)}: ${g.members.join(' → ')}`);
+          return 0;
+        }
+        if (action === 'rename') {
+          if (!gname || !members[0]) throw new UsageError('git-tidy services group rename <group> <new-name>');
+          manager.store.renameGroup(gname, members[0]);
+          out.line(`Renamed group ${out.bold(gname)} → ${out.bold(members[0])}`);
+          return 0;
+        }
+        if (action === 'rm') {
+          if (!gname) throw new UsageError('git-tidy services group rm <group>');
+          manager.store.removeGroup(gname);
+          out.line(`Removed group ${gname} (its services are untouched)`);
+          return 0;
+        }
+        throw new UsageError('git-tidy services group [set <group> <name…> | rename <group> <new-name> | rm <group>]');
+      }
+      case 'up':
+        await manager.up(names, (e) => event(out, e));
+        return 0;
+      case 'down':
+        await manager.down(names, (e) => event(out, e), { external: names.length > 0 || args.flags.external === true });
+        return 0;
+      case 'restart': {
+        if (names.length === 0) throw new UsageError('git-tidy services restart <name|group…>');
+        await manager.restart(names, (e) => event(out, e));
         return 0;
       }
       case 'add': {

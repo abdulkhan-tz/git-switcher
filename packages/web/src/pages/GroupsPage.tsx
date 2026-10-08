@@ -26,7 +26,7 @@ export function GroupsPage() {
         <h2>Groups</h2>
         <span className="spacer" />
         <button className="ghost small" onClick={() => void create()}>New group</button>
-        <button className="ghost small" onClick={() => void refresh()}>Refresh</button>
+        <button className="ghost small" onClick={() => void refresh(true)}>Refresh</button>
       </div>
       <p className="muted small">A group starts several services in a fixed order, top to bottom, and stops them in reverse. A service's own dependencies are started before it, only if they are not already up.</p>
       {groups.length === 0 && <div className="empty">No groups yet. Create one, then add services and set the order.</div>}

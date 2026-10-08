@@ -19,9 +19,9 @@ export function useServices() {
   const [groups, setGroups] = useState<ServiceGroup[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (fresh = false) => {
     try {
-      const [r, g] = await Promise.all([api.services(), api.serviceGroups()]);
+      const [r, g] = await Promise.all([api.services(fresh), api.serviceGroups()]);
       setRows(r);
       setGroups(g);
       setError(null);

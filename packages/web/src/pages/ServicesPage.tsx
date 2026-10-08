@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { api, type ServiceGitView, type ServiceView } from '../api';
 import { badge, useServices } from '../components/useServices';
 
@@ -118,54 +118,125 @@ function BranchSwitcher({ s, act }: { s: ServiceView; act: (fn: () => Promise<un
   );
 }
 
+const MAX_LOG_CHARS = 400_000;
+
+/** Tails a service's log: fetches only the bytes appended since the last poll. */
 function LogView({ name }: { name: string }) {
-  const [text, setText] = useState('Loading…');
+  const [text, setText] = useState('');
+  const [loaded, setLoaded] = useState(false);
+  const [live, setLive] = useState(true);
+  const [follow, setFollow] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  const [updated, setUpdated] = useState<Date | null>(null);
+  const offset = useRef<number | undefined>(undefined);
   const box = useRef<HTMLPreElement>(null);
-  useEffect(() => {
-    let alive = true;
-    const load = () =>
-      api.serviceLog(name).then(
-        (r) => {
-          if (!alive) return;
-          const el = box.current;
-          const atBottom = !el || el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-          setText(r.log || '(no log yet)');
-          if (atBottom) requestAnimationFrame(() => el && (el.scrollTop = el.scrollHeight));
-        },
-        () => {},
-      );
-    void load();
-    const t = setInterval(() => void load(), 2000);
-    return () => {
-      alive = false;
-      clearInterval(t);
-    };
+  const busy = useRef(false);
+
+  const poll = useCallback(async () => {
+    if (busy.current) return;
+    busy.current = true;
+    try {
+      const r = await api.serviceLog(name, offset.current);
+      offset.current = r.offset;
+      setErr(null);
+      setUpdated(new Date());
+      setLoaded(true);
+      if (r.reset) setText(r.text || '');
+      else if (r.text) setText((t) => (t + r.text).slice(-MAX_LOG_CHARS));
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      busy.current = false;
+    }
   }, [name]);
-  return <pre ref={box} className="logbox">{text}</pre>;
+
+  useEffect(() => {
+    offset.current = undefined;
+    setText('');
+    setLoaded(false);
+    void poll();
+  }, [name, poll]);
+
+  useEffect(() => {
+    if (!live) return;
+    const t = setInterval(() => void poll(), 1000);
+    return () => clearInterval(t);
+  }, [live, poll]);
+
+  // keep the newest line in view while following
+  useEffect(() => {
+    const el = box.current;
+    if (follow && el) el.scrollTop = el.scrollHeight;
+  }, [text, follow]);
+
+  const clear = async () => {
+    if (!confirm(`Clear the log of ${name}? The file is emptied; the service keeps running and keeps writing to it.`)) return;
+    try {
+      await api.clearServiceLog(name);
+      offset.current = 0;
+      setText('');
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+  };
+
+  return (
+    <div>
+      <div className="section-head" style={{ marginBottom: 6 }}>
+        <span className={`badge ${live ? 'ok' : ''}`}>{live ? '● live' : 'paused'}</span>
+        <button className="ghost small" onClick={() => setLive(!live)}>{live ? 'Pause' : 'Resume'}</button>
+        <button className="ghost small" onClick={() => void poll()}>Refresh</button>
+        <label className="small" style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
+          <input type="checkbox" checked={follow} onChange={(e) => setFollow(e.target.checked)} /> Follow
+        </label>
+        <span className="spacer" />
+        {updated && <span className="muted small">updated {updated.toLocaleTimeString()}</span>}
+        <button className="ghost small" onClick={() => void clear()}>Clear log</button>
+      </div>
+      {err && <div className="notice error">{err}</div>}
+      <pre
+        ref={box}
+        className="logbox"
+        onScroll={(e) => {
+          // scrolling up stops following; reaching the bottom again resumes it
+          const el = e.currentTarget;
+          const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+          if (!atBottom && follow) setFollow(false);
+          else if (atBottom && !follow) setFollow(true);
+        }}
+      >
+        {text || (loaded ? '(no log yet)' : 'Loading…')}
+      </pre>
+    </div>
+  );
 }
 
 function GitView({ name }: { name: string }) {
   const [g, setG] = useState<ServiceGitView | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [tick, setTick] = useState(0);
   useEffect(() => {
     let alive = true;
-    const load = () => api.serviceGit(name).then((r) => alive && setG(r), (e: Error) => alive && setErr(e.message));
-    setG(null);
+    const load = () => api.serviceGit(name).then((r) => alive && (setG(r), setErr(null)), (e: Error) => alive && setErr(e.message));
     void load();
     const t = setInterval(() => void load(), 5000);
     return () => {
       alive = false;
       clearInterval(t);
     };
-  }, [name]);
+  }, [name, tick]);
 
   if (err) return <div className="notice error">{err}</div>;
   if (!g) return <div className="muted">Loading…</div>;
   if (g.root === null) return <div className="empty">This service's folder is not inside a git repository.</div>;
   return (
     <div style={{ display: 'grid', gap: 14 }}>
-      <div className="muted small">
-        <code>{g.branch ?? '(detached)'}</code> @ <code>{g.head}</code> · <span title={g.root}>{g.root}</span>
+      <div className="section-head">
+        <span className="muted small">
+          <code>{g.branch ?? '(detached)'}</code> @ <code>{g.head}</code> · <span title={g.root}>{g.root}</span>
+        </span>
+        <span className="spacer" />
+        <button className="ghost small" onClick={() => setTick(tick + 1)}>Refresh</button>
       </div>
       <section>
         <h4 style={{ margin: '0 0 6px' }}>Uncommitted files ({g.files.length})</h4>
@@ -270,6 +341,7 @@ export function ServicesPage() {
           <span className={`badge ${b.cls}`}>{b.text}</span>
           {current.groups.map((g) => <span key={g} className="badge info">{g}</span>)}
           <span className="spacer" />
+          <button className="ghost small" onClick={() => void refresh(true)} title="Re-read status, branch and git counts now">Refresh</button>
           {controls(current)}
         </div>
         {current.error && (
@@ -313,6 +385,7 @@ export function ServicesPage() {
       <div className="section-head">
         <h2>Services</h2>
         <span className="spacer" />
+        <button className="ghost small" onClick={() => void refresh(true)}>Refresh</button>
         <button className="small" disabled={busy || !anyDown} onClick={() => act(() => api.servicesUp([]))}>Start all down</button>
         <button className="ghost small" disabled={busy || !anyManaged} onClick={() => act(() => api.servicesDown([]))}>Stop all</button>
       </div>

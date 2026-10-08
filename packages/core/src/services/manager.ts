@@ -1,5 +1,5 @@
 import { execFile, spawn } from 'node:child_process';
-import { closeSync, mkdirSync, openSync, readFileSync, statSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, openSync, readSync, statSync, truncateSync } from 'node:fs';
 import { connect } from 'node:net';
 import { switchBranch } from '../switch/run.js';
 import type { RunResult, StepEvent } from '../switch/types.js';
@@ -283,14 +283,44 @@ export class ServiceManager {
     if (isAlive(pid)) signal('SIGKILL');
   }
 
+  /**
+   * Reads a service's log. Without `offset` it returns roughly the last `maxBytes` (starting on a line
+   * boundary); with one it returns only what was appended since. `reset` is true when the file is
+   * shorter than the offset (it was cleared), so the caller should start over from `text`.
+   */
+  readLog(name: string, opts: { offset?: number; maxBytes?: number } = {}): { text: string; offset: number; reset: boolean } {
+    this.store.get(name);
+    const file = this.store.logFile(name);
+    if (!existsSync(file)) return { text: '', offset: 0, reset: opts.offset !== undefined && opts.offset > 0 };
+    const size = statSync(file).size;
+    const max = opts.maxBytes ?? 256 * 1024;
+    const reset = opts.offset !== undefined && opts.offset > size;
+    let start = opts.offset === undefined || reset ? Math.max(0, size - max) : opts.offset;
+    if (size - start > max) start = size - max; // a long gap: skip to the recent end
+    const length = size - start;
+    const buf = Buffer.alloc(length);
+    const fd = openSync(file, 'r');
+    try {
+      readSync(fd, buf, 0, length, start);
+    } finally {
+      closeSync(fd);
+    }
+    let text = buf.toString('utf8');
+    // starting mid-file: drop the partial first line
+    if (start > 0 && (opts.offset === undefined || reset || start !== opts.offset)) text = text.slice(text.indexOf('\n') + 1);
+    return { text, offset: size, reset: reset || opts.offset === undefined };
+  }
+
+  /** Empties a service's log file. A running service keeps appending to the same file. */
+  clearLog(name: string): void {
+    this.store.get(name);
+    const file = this.store.logFile(name);
+    if (existsSync(file)) truncateSync(file, 0);
+  }
+
   /** Last `lines` lines of a service's log. */
   tail(name: string, lines = 50): string {
-    this.store.get(name);
-    try {
-      const all = readFileSync(this.store.logFile(name), 'utf8').split('\n');
-      return all.slice(-lines - 1).join('\n');
-    } catch {
-      return '';
-    }
+    const { text } = this.readLog(name);
+    return text.split('\n').slice(-lines - 1).join('\n');
   }
 }

@@ -4,7 +4,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { extname, join, normalize, resolve } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { fileURLToPath } from 'node:url';
-import { listBranches, serviceGit, ServiceError, ServiceManager, History, PromotionError, PromotionWorker, Registry, RegistryError, SettingsError, foldedHeads, repairCase, inspect, listWorktrees, repoExists, worktreeDetails, type RepoEntry } from '@tidy/core';
+import { clearGitCache, listBranches, serviceGit, ServiceError, ServiceManager, History, PromotionError, PromotionWorker, Registry, RegistryError, SettingsError, foldedHeads, repairCase, inspect, listWorktrees, repoExists, worktreeDetails, type RepoEntry } from '@tidy/core';
 import { Batch } from './runs.js';
 
 export interface ServerOptions {
@@ -205,6 +205,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
 
     if (resource === 'services') {
       if (!id && method === 'GET') {
+        if (url.searchParams.get('fresh') === '1') clearGitCache();
         const rows = await services.status(undefined, { git: true });
         return json(res, 200, rows.map((r) => ({ ...r, job: serviceJobs.get(r.name)?.action, error: r.state === 'up' && serviceJobs.get(r.name)?.action !== 'switching' ? undefined : serviceJobs.get(r.name)?.error })));
       }
@@ -273,7 +274,11 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
         const def = services.store.get(id);
         return json(res, 200, (await serviceGit(def.cwd)) ?? { root: null });
       }
-      if (id && sub === 'logs' && method === 'GET') return json(res, 200, { log: services.tail(id, Number(url.searchParams.get('lines') ?? 80)) });
+      if (id && sub === 'logs' && method === 'GET') {
+        const off = url.searchParams.get('offset');
+        return json(res, 200, services.readLog(id, { offset: off === null ? undefined : Number(off) }));
+      }
+      if (id && sub === 'logs' && method === 'DELETE') return services.clearLog(id), json(res, 200, { ok: true });
       if ((id === 'up' || id === 'down') && !sub && method === 'POST') {
         // POST /services/up|down with {names: []} — an empty list means every service
         const b = await readBody(req);

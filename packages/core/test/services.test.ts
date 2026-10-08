@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { execSync, spawn } from 'node:child_process';
 import { createServer } from 'node:net';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { makeFixture } from './fixture.js';
@@ -226,4 +226,31 @@ describe('services', () => {
     expect(missing.result.outcome).toBe('cancelled');
     expect((await manager.status('app'))[0]!.state).toBe('up');
   }, 60_000);
+
+  it('tails a log by offset, notices when it was cleared, and clears it', () => {
+    const { manager } = setup();
+    manager.store.put(listener('app', 1));
+    expect(manager.readLog('app')).toEqual({ text: '', offset: 0, reset: false });
+
+    mkdirSync(manager.store.logDir, { recursive: true });
+    const file = manager.store.logFile('app');
+    appendFileSync(file, 'one\ntwo\n');
+    const first = manager.readLog('app');
+    expect(first).toMatchObject({ text: 'one\ntwo\n', reset: true }); // no offset: a fresh read
+
+    appendFileSync(file, 'three\n');
+    const next = manager.readLog('app', { offset: first.offset });
+    expect(next).toMatchObject({ text: 'three\n', reset: false });
+    expect(manager.readLog('app', { offset: next.offset })).toMatchObject({ text: '', reset: false }); // nothing new
+
+    manager.clearLog('app');
+    expect(manager.readLog('app', { offset: next.offset })).toMatchObject({ text: '', offset: 0, reset: true });
+    appendFileSync(file, 'after\n'); // a running process keeps appending to the same file
+    expect(manager.readLog('app', { offset: 0 })).toMatchObject({ text: 'after\n', reset: false });
+
+    appendFileSync(file, 'x'.repeat(5000) + '\nlast\n');
+    const big = manager.readLog('app', { maxBytes: 100 }); // a long log: only the recent end, from a line start
+    expect(big.text.endsWith('last\n')).toBe(true);
+    expect(big.text.length).toBeLessThanOrEqual(100);
+  });
 });
