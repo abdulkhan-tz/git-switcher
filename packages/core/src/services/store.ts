@@ -9,6 +9,8 @@ export class ServiceError extends Error {}
 export interface RunRecord {
   pid: number;
   startedAt: string;
+  /** Size of the log file when the process was started, so only this run's output is scanned for alerts. */
+  logOffset?: number;
 }
 
 interface Data {
@@ -17,6 +19,8 @@ interface Data {
   groups: ServiceGroup[];
   /** What the helper itself started. Kept apart from the definitions so editing one never clobbers the other. */
   running: Record<string, RunRecord>;
+  /** The most recent start of each service, kept after it stops so its last log can still be checked for alerts. */
+  lastRuns?: Record<string, RunRecord>;
 }
 
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
@@ -71,7 +75,7 @@ export class ServiceStore {
     if (!existsSync(this.file)) return { version: 1, services: [], groups: [], running: {} };
     try {
       const data = JSON.parse(readFileSync(this.file, 'utf8')) as Partial<Data>;
-      return { version: 1, services: data.services ?? [], groups: data.groups ?? [], running: data.running ?? {} };
+      return { version: 1, services: data.services ?? [], groups: data.groups ?? [], running: data.running ?? {}, lastRuns: data.lastRuns };
     } catch {
       throw new ServiceError(`${this.file} is not valid JSON — fix or delete it`);
     }
@@ -130,6 +134,7 @@ export class ServiceStore {
     if (needs.length) throw new ServiceError(`${needs.join(', ')} depend${needs.length === 1 ? 's' : ''} on ${name}; change that first`);
     const [gone] = data.services.splice(i, 1);
     delete data.running[name];
+    delete data.lastRuns?.[name];
     for (const g of data.groups) g.members = g.members.filter((m) => m !== name);
     this.save(data);
     return gone!;
@@ -149,6 +154,10 @@ export class ServiceStore {
     if (data.running[from]) {
       data.running[to] = data.running[from]!;
       delete data.running[from];
+    }
+    if (data.lastRuns?.[from]) {
+      data.lastRuns[to] = data.lastRuns[from]!;
+      delete data.lastRuns[from];
     }
     const oldLog = this.logFile(from);
     if (existsSync(oldLog)) {
@@ -209,8 +218,14 @@ export class ServiceStore {
 
   setRunning(name: string, record: RunRecord | null): void {
     const data = this.load();
-    if (record) data.running[name] = record;
-    else delete data.running[name];
+    if (record) {
+      data.running[name] = record;
+      (data.lastRuns ??= {})[name] = record;
+    } else delete data.running[name];
     this.save(data);
+  }
+
+  lastRun(name: string): RunRecord | undefined {
+    return this.load().lastRuns?.[name];
   }
 }

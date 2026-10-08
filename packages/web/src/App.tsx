@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from './api';
 import { PAGES } from './pages';
 import { Toaster } from './components/Toast';
-import { useServiceCount } from './components/useServices';
+import { useServiceSummary } from './components/useServices';
 
 function currentPage(): string {
   const id = location.hash.replace(/^#\/?/, '').split('?')[0] ?? '';
@@ -27,7 +27,7 @@ export function App() {
     return () => clearInterval(t);
   }, []);
 
-  const services = useServiceCount();
+  const services = useServiceSummary();
 
   return (
     <div className="app">
@@ -57,6 +57,20 @@ export function App() {
         )}
       </header>
       <main>
+        {services && services.alerts.length > 0 && (
+          <div className="alert-red" role="alert">
+            <strong>Database migration failed</strong>
+            {services.alerts.map((a) => (
+              <div key={`${a.service}|${a.message}`} className="alert-line">
+                <b>{a.service}</b> <code>{a.message}</code>
+              </div>
+            ))}
+            <div>
+              <a href="#/services">Open services and logs</a>
+              <span className="muted"> — clears itself once the service starts cleanly</span>
+            </div>
+          </div>
+        )}
         {stale && (
           <div className="notice warn-notice" role="status">
             tidy was updated since this window started and is still running the old version. Restart it (tray: <strong>Restart to apply update</strong>, or rerun <code>git-tidy ui</code>).

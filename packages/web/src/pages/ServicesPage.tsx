@@ -341,6 +341,7 @@ export function ServicesPage() {
           <button className="ghost small" onClick={() => setSelected(null)}>← All services</button>
           <h2>{current.name}</h2>
           <span className={`status ${b.cls}`}><i />{b.text}</span>
+          {current.alerts?.length ? <span className="badge danger">Liquibase failed</span> : null}
           {current.groups.map((g) => <span key={g} className="badge info">{g}</span>)}
           <span className="spacer" />
           <button className="ghost small" onClick={() => void refresh(true)} title="Re-read status, branch and git counts now">Refresh</button>
@@ -410,6 +411,7 @@ export function ServicesPage() {
               <tr key={r.name}>
                 <td>
                   <button className="link" onClick={() => open(r.name, 'logs')}><strong>{r.name}</strong></button>
+                  {r.alerts?.length ? <span className="badge danger" style={{ marginLeft: 8 }} title={r.alerts.map((a) => a.message).join('\n')}>Liquibase failed</span> : null}
                   {r.description && <div className="muted small">{r.description}</div>}
                   {r.error && <div className="small" style={{ color: 'var(--danger)' }}>{r.error}</div>}
                 </td>

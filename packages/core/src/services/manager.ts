@@ -3,9 +3,10 @@ import { closeSync, existsSync, mkdirSync, openSync, readSync, statSync, truncat
 import { connect } from 'node:net';
 import { switchBranch } from '../switch/run.js';
 import type { RunResult, StepEvent } from '../switch/types.js';
+import { scanLog } from './alerts.js';
 import { gitSummary, serviceGit } from './git.js';
 import { ServiceError, ServiceStore, expandHome } from './store.js';
-import type { ServiceDef, ServiceEvent, ServiceStatus } from './types.js';
+import type { ServiceAlert, ServiceDef, ServiceEvent, ServiceStatus } from './types.js';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -74,7 +75,7 @@ export class ServiceManager {
         const alive = rec ? isAlive(rec.pid) : false;
         if (rec && !alive) this.store.setRunning(d.name, null); // stale record: the process is gone
         const open = await portOpen(d.port);
-        const base = { name: d.name, description: d.description, port: d.port, cwd: d.cwd, command: d.command, prepare: d.prepare, env: d.env, startTimeoutSec: d.startTimeoutSec, logFile: this.store.logFile(d.name), dependsOn: d.dependsOn ?? [], groups: groups.filter((g) => g.members.includes(d.name)).map((g) => g.name), git: opts.git ? await gitSummary(d.cwd) : undefined };
+        const base = { name: d.name, description: d.description, port: d.port, cwd: d.cwd, command: d.command, prepare: d.prepare, env: d.env, startTimeoutSec: d.startTimeoutSec, logFile: this.store.logFile(d.name), dependsOn: d.dependsOn ?? [], groups: groups.filter((g) => g.members.includes(d.name)).map((g) => g.name), git: opts.git ? await gitSummary(d.cwd) : undefined, alerts: this.alertsFor(d.name, rec?.logOffset) };
         if (alive && open) return { ...base, state: 'up', pid: rec!.pid, startedAt: rec!.startedAt };
         if (alive) return { ...base, state: 'starting', pid: rec!.pid, startedAt: rec!.startedAt };
         if (open) {
@@ -84,6 +85,12 @@ export class ServiceManager {
         return { ...base, state: 'down' };
       }),
     );
+  }
+
+  /** Problems in the log of the service's latest run. Nothing is reported for a service tidy never started. */
+  private alertsFor(name: string, liveOffset?: number): ServiceAlert[] {
+    const offset = liveOffset ?? this.store.lastRun(name)?.logOffset;
+    return offset === undefined ? [] : scanLog(this.store.logFile(name), offset);
   }
 
   /** Expands group names into their members, in sequence. Plain service names pass through. */
@@ -151,12 +158,13 @@ export class ServiceManager {
         const code = await runShell(def, def.prepare, logFd);
         if (code !== 0) throw new ServiceError(`${def.name}: prepare step failed (exit ${code}); see ${logFile}`);
       }
+      const logOffset = statSync(logFile).size; // what is logged from here on belongs to this run
       // detached: the service gets its own process group (so `down` can stop its children too) and outlives us.
       const child = spawn('sh', ['-c', def.command], { cwd, env: { ...process.env, ...def.env }, stdio: ['ignore', logFd, logFd], detached: true });
       child.once('error', () => {});
       if (!child.pid) throw new ServiceError(`${def.name}: could not start the process`);
       child.unref();
-      this.store.setRunning(def.name, { pid: child.pid, startedAt: new Date().toISOString() });
+      this.store.setRunning(def.name, { pid: child.pid, startedAt: new Date().toISOString(), logOffset });
       on({ type: 'start', name: def.name, pid: child.pid, logFile });
     } finally {
       closeSync(logFd);

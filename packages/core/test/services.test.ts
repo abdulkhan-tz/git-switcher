@@ -33,6 +33,23 @@ const listener = (name: string, port: number, extra: Partial<ServiceDef> = {}): 
   validateDef({ name, cwd: tmpdir(), port, command: `exec node -e "require('net').createServer().listen(${port}, '127.0.0.1')"`, startTimeoutSec: 20, ...extra });
 
 describe('services', () => {
+  it('raises an alert when this run logs a failed Liquibase migration, and clears it on the next clean run', async () => {
+    const { manager } = setup();
+    const port = await freePort();
+    const noisy = `echo "2026-10-08 10:00:00.000 [main] ERROR c.t.Helper [doc= tid=] - Failed to run Liquibase migration for tenant: alpha"; exec node -e "require('net').createServer().listen(${port}, '127.0.0.1')"`;
+    manager.store.put(listener('ao', port, { command: noisy }));
+    await manager.up(['ao']);
+    const [bad] = await manager.status('ao');
+    expect(bad!.alerts).toEqual([{ kind: 'liquibase', message: 'Failed to run Liquibase migration for tenant: alpha' }]);
+
+    // output from before this run is not blamed on the new one
+    await manager.down(['ao']);
+    manager.store.update('ao', { command: `exec node -e "require('net').createServer().listen(${port}, '127.0.0.1')"` });
+    await manager.up(['ao']);
+    const [good] = await manager.status('ao');
+    expect(good!.alerts).toEqual([]);
+  });
+
   it('starts in dependency order, reports state, and stops dependents first', async () => {
     const { manager } = setup();
     const [a, b] = [await freePort(), await freePort()];

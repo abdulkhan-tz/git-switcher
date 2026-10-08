@@ -34,6 +34,12 @@ export interface ServiceGroup {
   members: string[];
 }
 
+/** Something worth a red banner that the service's own log reports (the process may still be up). */
+export interface ServiceAlert {
+  kind: 'liquibase';
+  message: string;
+}
+
 export interface ServiceStatus {
   name: string;
   description?: string;
@@ -53,6 +59,8 @@ export interface ServiceStatus {
   externalCommand?: string;
   startedAt?: string;
   logFile: string;
+  /** Problems found in this run's log, e.g. a failed database migration. */
+  alerts?: ServiceAlert[];
   dependsOn: string[];
   /** Names of the groups this service belongs to. */
   groups: string[];

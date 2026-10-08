@@ -53,19 +53,37 @@ export function useServices() {
   return { rows, groups, error, setError, refresh, act };
 }
 
-/** Lightweight up/total count for the sidebar; the Services page does its own, fuller polling. */
-export function useServiceCount() {
-  const [n, setN] = useState<{ up: number; total: number } | null>(null);
+export interface ServiceAlertView {
+  service: string;
+  message: string;
+}
+
+/** Up/total count and any log alerts (a failed Liquibase migration) for the shell; the Services page polls on its own. */
+export function useServiceSummary() {
+  const [n, setN] = useState<{ up: number; total: number; alerts: ServiceAlertView[] } | null>(null);
   useEffect(() => {
     if (!api.hasToken()) return;
     let alive = true;
+    const seen = new Set<string>();
+    let first = true;
     const load = () =>
       api.services().then(
-        (r) => alive && setN({ up: r.filter((s) => s.state === 'up' || s.state === 'external').length, total: r.length }),
+        (r) => {
+          if (!alive) return;
+          const alerts = r.flatMap((s) => (s.alerts ?? []).map((a) => ({ service: s.name, message: a.message })));
+          // say it once, loudly, when a new problem appears; the banner stays until the next run is clean
+          for (const a of alerts) {
+            const key = `${a.service}|${a.message}`;
+            if (!seen.has(key) && !first) toast(`${a.service}: database migration failed`, 'error');
+            seen.add(key);
+          }
+          first = false;
+          setN({ up: r.filter((s) => s.state === 'up' || s.state === 'external').length, total: r.length, alerts });
+        },
         () => {},
       );
     void load();
-    const t = setInterval(() => void load(), 5000);
+    const t = setInterval(() => void load(), 4000);
     return () => {
       alive = false;
       clearInterval(t);
