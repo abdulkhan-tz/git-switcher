@@ -122,6 +122,7 @@ input:focus, button:focus-visible { outline: 2px solid var(--accent); outline-of
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
   padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; min-width: 0;
 }
+.card.selectable { cursor: pointer; }
 .card.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .card.broken { opacity: 0.8; }
 .card-head { display: flex; align-items: center; gap: 8px; cursor: pointer; }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type MouseEvent } from 'react';
 import type { WorktreeDetails } from '@tidy/core';
 import { api, type RepoView } from '../api';
 import { PipelineEditor } from './PipelineEditor';
@@ -56,10 +56,20 @@ export function RepoCard({ repo, selected, busy, onToggle, onChanged, onError }:
     }
   };
 
+  const selectable = !busy && !repo.missing;
+  // A click anywhere on the card selects it. Controls keep their own behaviour, and the header label
+  // already toggles its checkbox, so neither is handled here (that would toggle twice).
+  const onCardClick = (e: MouseEvent<HTMLElement>) => {
+    if (!selectable) return;
+    if ((e.target as HTMLElement).closest('button, a, input, select, textarea, label, summary, details, [role="button"]')) return;
+    if (window.getSelection()?.toString()) return; // the user was selecting text to copy
+    onToggle();
+  };
+
   return (
-    <article className={`card ${selected ? 'selected' : ''} ${repo.missing || repo.error ? 'broken' : ''}`}>
+    <article className={`card ${selected ? 'selected' : ''} ${repo.missing || repo.error ? 'broken' : ''} ${selectable ? 'selectable' : ''}`} onClick={onCardClick}>
       <label className="card-head">
-        <input type="checkbox" checked={selected} onChange={onToggle} disabled={busy || repo.missing} />
+        <input type="checkbox" checked={selected} onChange={onToggle} disabled={!selectable} />
         <span className="repo-name">{repo.name}</span>
         {busy && <span className="badge info">switching…</span>}
       </label>
