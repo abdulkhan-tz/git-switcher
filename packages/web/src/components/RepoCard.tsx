@@ -39,11 +39,36 @@ export function RepoCard({ repo, selected, busy, services, onToggle, onSwitch, o
     setSwitching(false);
     setChoice('');
   };
-  const restartApp = async () => {
-    if (!confirm(`Restart ${svcNames.join(', ')}? It is stopped (with anything that needs it) and started again from ${repo.path}.`)) return;
+  // Sync before restarting: the same stash → fetch → pull → unstash a branch switch does, on the branch
+  // it is already on, then the service starts again on the fresh code. Remembered between visits.
+  const [sync, setSync] = useState(() => {
     try {
-      await api.servicesRestart(svcNames);
-      toast(`Restarting ${svcNames.join(', ')}…`);
+      return localStorage.getItem('tidy.syncOnRestart') !== '0';
+    } catch {
+      return true;
+    }
+  });
+  const toggleSync = (v: boolean) => {
+    setSync(v);
+    try {
+      localStorage.setItem('tidy.syncOnRestart', v ? '1' : '0');
+    } catch {
+      /* not remembered, still works */
+    }
+  };
+  const branch = repo.state?.branch ?? null;
+  const willSync = sync && !!branch;
+  const restartApp = async () => {
+    const dirty = (repo.state?.uncommitted ?? 0) + (repo.state?.untracked ?? 0);
+    const what = willSync
+      ? `Pull the latest ${branch} into ${repo.path}${dirty ? ` (your ${dirty} uncommitted file${dirty === 1 ? '' : 's'} are stashed and put back)` : ''}, then restart ${svcNames.join(', ')}?`
+      : `Restart ${svcNames.join(', ')}? It is stopped (with anything that needs it) and started again from ${repo.path}.`;
+    if (!confirm(what)) return;
+    try {
+      // the service switch stops the service, syncs the folder and starts it again, in that order
+      if (willSync) await api.switchServiceBranch(svcNames[0]!, branch!, true);
+      else await api.servicesRestart(svcNames);
+      toast(willSync ? `Syncing and restarting ${svcNames.join(', ')}…` : `Restarting ${svcNames.join(', ')}…`);
       onChanged();
     } catch (e) {
       onError((e as Error).message);
@@ -141,9 +166,14 @@ export function RepoCard({ repo, selected, busy, services, onToggle, onSwitch, o
         <div className="repo-actions">
           <button className="small" disabled={!selectable} onClick={() => (switching ? setSwitching(false) : openSwitch())}>Switch branch</button>
           {services.length > 0 && (
-            <button className="small" disabled={svcBusy} onClick={() => void restartApp()} title={`Restart ${svcNames.join(', ')}`}>
-              {svcBusy ? 'Restarting…' : 'Restart app'}
-            </button>
+            <>
+              <button className="small" disabled={svcBusy} onClick={() => void restartApp()} title={`Restart ${svcNames.join(', ')}`}>
+                {svcBusy ? 'Working…' : willSync ? 'Sync & restart' : 'Restart app'}
+              </button>
+              <label className="sync-check small" title={branch ? `Pull the latest ${branch} before restarting` : 'Detached HEAD: nothing to sync'}>
+                <input type="checkbox" checked={sync && !!branch} disabled={!branch || svcBusy} onChange={(e) => toggleSync(e.target.checked)} /> Sync
+              </label>
+            </>
           )}
           {others > 0 && (
             <button className="link" onClick={toggleWorktrees}>
