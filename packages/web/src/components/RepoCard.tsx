@@ -29,11 +29,12 @@ export function RepoCard({ repo, selected, busy, services, onToggle, onSwitch, o
 
   const openSwitch = () => {
     setSwitching(true);
+    setChoice(repo.state?.branch ?? ''); // the current branch is the default: switching to it just brings it up to date
     void api.repoBranches(repo.id).then((r) => setBranches(r.branches), (e: Error) => onError(e.message));
   };
   const submitSwitch = () => {
     const b = choice.trim();
-    if (!b || b === repo.state?.branch) return;
+    if (!b) return;
     onSwitch(b);
     setSwitching(false);
     setChoice('');
@@ -157,7 +158,7 @@ export function RepoCard({ repo, selected, busy, services, onToggle, onSwitch, o
         <form className="inline-edit switch-inline" onSubmit={(e) => { e.preventDefault(); submitSwitch(); }}>
           <input list={`rb-${repo.id}`} value={choice} onChange={(e) => setChoice(e.target.value)} placeholder="branch to switch to…" aria-label="Branch to switch to" autoFocus style={{ flex: 1, fontFamily: 'var(--mono)' }} />
           <datalist id={`rb-${repo.id}`}>{branches.map((b) => <option key={b} value={b} />)}</datalist>
-          <button type="submit" className="primary small" disabled={!choice.trim() || choice.trim() === repo.state?.branch}>Switch</button>
+          <button type="submit" className="primary small" disabled={!choice.trim()}>{choice.trim() === repo.state?.branch ? 'Pull latest' : 'Switch'}</button>
           <button type="button" className="ghost small" onClick={() => setSwitching(false)}>Cancel</button>
         </form>
       )}

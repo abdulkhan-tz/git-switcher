@@ -97,13 +97,15 @@ function BranchSwitcher({ s, act }: { s: ServiceView; act: (fn: () => Promise<un
     };
   }, [s.name, s.git?.branch]);
   if (!s.git) return null;
-  const same = !choice || choice === s.git.branch;
-  const known = branches.includes(choice);
+  const target = choice || s.git.branch || '';
+  const same = target === s.git.branch;
+  const known = branches.includes(target);
   const running = s.state !== 'down';
   const go = () => {
-    const stash = s.git!.dirty ? `\n\nYour ${plural(s.git!.dirty, 'uncommitted file')} will be stashed and put back on the new branch.` : '';
-    if (!confirm(`Switch ${s.name} from ${s.git!.branch ?? '(detached)'} to ${choice}?${running ? `\n\n${s.name} (and anything that needs it) will be stopped, then started again on the new code.` : ''}${stash}`)) return;
-    void act(() => api.switchServiceBranch(s.name, choice, true), `Switching ${s.name} to ${choice}…`).then(() => setChoice(''));
+    const stash = s.git!.dirty ? `\n\nYour ${plural(s.git!.dirty, 'uncommitted file')} will be stashed and put back afterwards.` : '';
+    const what = same ? `Bring ${s.name} up to date on ${target} (pull the latest)?` : `Switch ${s.name} from ${s.git!.branch ?? '(detached)'} to ${target}?`;
+    if (!confirm(`${what}${running ? `\n\n${s.name} (and anything that needs it) will be stopped, then started again on the new code.` : ''}${stash}`)) return;
+    void act(() => api.switchServiceBranch(s.name, target, true), same ? `Updating ${s.name}…` : `Switching ${s.name} to ${target}…`).then(() => setChoice(''));
   };
   return (
     <div className="section-head" style={{ margin: '4px 0 10px' }}>
@@ -112,8 +114,8 @@ function BranchSwitcher({ s, act }: { s: ServiceView; act: (fn: () => Promise<un
       <span className="muted small">→</span>
       <input list={`branches-${s.name}`} value={choice} onChange={(e) => setChoice(e.target.value)} placeholder="pick or type a branch…" style={{ minWidth: 260, fontFamily: 'monospace' }} aria-label="Branch to switch to" />
       <datalist id={`branches-${s.name}`}>{branches.map((b) => <option key={b} value={b} />)}</datalist>
-      <button className="small" disabled={same || !known || !!s.job} onClick={go} title={choice && !known ? 'No such branch here — it is not created from this screen' : undefined}>
-        Switch{running ? ' & restart' : ''}
+      <button className="small" disabled={!known || !!s.job} onClick={go} title={choice && !known ? 'No such branch here — it is not created from this screen' : same ? 'Already on this branch: pulls the latest' : undefined}>
+        {same ? 'Pull latest' : 'Switch'}{running ? ' & restart' : ''}
       </button>
     </div>
   );
